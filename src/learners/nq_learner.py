@@ -28,6 +28,7 @@ class NQLearner:
             self.mixer = Mixer(args)
         else:
             raise "mixer error"
+        
         self.target_mixer = copy.deepcopy(self.mixer)
         self.params += list(self.mixer.parameters())
 
@@ -53,25 +54,25 @@ class NQLearner:
         
     def train(self, batch: EpisodeBatch, t_env: int, episode_num: int, per_weight=None):
         # Get the relevant quantities
-        rewards = batch["reward"][:, :-1]
-        actions = batch["actions"][:, :-1]
-        terminated = batch["terminated"][:, :-1].float()
-        mask = batch["filled"][:, :-1].float()
+        rewards = batch["reward"][:, :-1]                   # [batch_size, max_episode_len, 1]
+        actions = batch["actions"][:, :-1]                  # [batch_size, max_episode_len, agent_num, 1]
+        terminated = batch["terminated"][:, :-1].float()    # [batch_size, max_episode_len, 1]    
+        mask = batch["filled"][:, :-1].float()              # [batch_size, max_episode_len, 1]
         mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
-        avail_actions = batch["avail_actions"]
+        avail_actions = batch["avail_actions"]              # [batch_size, max_episode_len+1, agent_num, action_dim]
         
         # Calculate estimated Q-Values
         self.mac.agent.train()
-        mac_out = []
+        mac_out = []                                        # [batch_size, max_episode_len, agent_num, action_dim]
         self.mac.init_hidden(batch.batch_size)
         for t in range(batch.max_seq_length):
-            agent_outs = self.mac.forward(batch, t=t)
+            agent_outs = self.mac.forward(batch, t=t)       # [batch_size, agents_num, action_dim]
             mac_out.append(agent_outs)
         mac_out = th.stack(mac_out, dim=1)  # Concat over time
 
         # Pick the Q-Values for the actions taken by each agent
         chosen_action_qvals = th.gather(mac_out[:, :-1], dim=3, index=actions).squeeze(3)  # Remove the last dim
-        chosen_action_qvals_ = chosen_action_qvals
+        chosen_action_qvals_ = chosen_action_qvals          # [batch_size, max_episode_len, agents_num]
 
         # Calculate the Q-Values necessary for the target
         with th.no_grad():
@@ -89,10 +90,10 @@ class NQLearner:
             mac_out_detach = mac_out.clone().detach()
             mac_out_detach[avail_actions == 0] = -9999999
             cur_max_actions = mac_out_detach.max(dim=3, keepdim=True)[1]
-            target_max_qvals = th.gather(target_mac_out, 3, cur_max_actions).squeeze(3)
+            target_max_qvals = th.gather(target_mac_out, 3, cur_max_actions).squeeze(3)     # [batch_size, max_episode_len, agents_num, 1]
             
             # Calculate n-step Q-Learning targets
-            target_max_qvals = self.target_mixer(target_max_qvals, batch["state"])
+            target_max_qvals = self.target_mixer(target_max_qvals, batch["state"])          # [batch_size, max_episode_len, 1]
 
             if getattr(self.args, 'q_lambda', False):
                 qvals = th.gather(target_mac_out, 3, batch["actions"]).squeeze(3)
@@ -107,10 +108,10 @@ class NQLearner:
         # Mixer
         chosen_action_qvals = self.mixer(chosen_action_qvals, batch["state"][:, :-1])
 
-        td_error = (chosen_action_qvals - targets.detach())
+        td_error = (chosen_action_qvals - targets.detach())     # [batch_size, max_episode_len, 1]
         td_error2 = 0.5 * td_error.pow(2)
 
-        mask = mask.expand_as(td_error2)
+        mask = mask.expand_as(td_error2)                        
         masked_td_error = td_error2 * mask
 
         # important sampling for PER

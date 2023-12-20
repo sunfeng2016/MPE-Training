@@ -4,6 +4,12 @@ import numpy as np
 
 
 def build_td_lambda_targets(rewards, terminated, mask, target_qs, n_agents, gamma, td_lambda):
+    # rewards:      [batch_size, max_episode_len, 1]
+    # terminated:   [batch_size, max_episode_len, 1]
+    # mask:         [batch_size, max_episode_len, 1]
+    # target_qs:    [batch_size, max_episode_len+1, 1]
+    # gamma:        0.99
+    # td_lambda:    0.6
     # Assumes  <target_qs > in B*T*A and <reward >, <terminated >, <mask > in (at least) B*T-1*1
     # Initialise  last  lambda -return  for  not  terminated  episodes
     ret = target_qs.new_zeros(*target_qs.shape)

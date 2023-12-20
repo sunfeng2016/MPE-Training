@@ -55,9 +55,9 @@ class EpisodeRunner:
         while not terminated:
 
             pre_transition_data = {
-                "state": [self.env.get_state()],
-                "avail_actions": [self.env.get_avail_actions()],
-                "obs": [self.env.get_obs()]
+                "state": [self.env.get_state()],                    # numpy array, shape: (state_dim, )
+                "avail_actions": [self.env.get_avail_actions()],    # list of list, shape: (agent_num, action_dim)
+                "obs": [self.env.get_obs()]                         # list of numpy array, shape: (agent_num, obs_dim)
             }
 
             self.batch.update(pre_transition_data, ts=self.t)
@@ -72,9 +72,9 @@ class EpisodeRunner:
             episode_return += reward
 
             post_transition_data = {
-                "actions": cpu_actions,
-                "reward": [(reward,)],
-                "terminated": [(terminated != env_info.get("episode_limit", False),)],
+                "actions": cpu_actions,                                                 # numpy array, shape: (1, agent_num) 
+                "reward": [(reward,)],                                                  # list of tuples, shape: (1, 1)
+                "terminated": [(terminated != env_info.get("episode_limit", False),)],  # list of tuples, shape: (1, 1)
             }
 
             self.batch.update(post_transition_data, ts=self.t)
