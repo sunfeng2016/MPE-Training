@@ -1,6 +1,6 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+# from __future__ import absolute_import
+# from __future__ import division
+# from __future__ import print_function
 
 from smac.env.multiagentenv import MultiAgentEnv
 from envs.starcraft.smac_maps import get_map_params
@@ -238,7 +238,7 @@ class StarCraft2Env(MultiAgentEnv):
         self.replay_prefix = replay_prefix
 
         # Actions
-        self.n_actions_no_attack = 6
+        self.n_actions_no_attack = 6 # 4(move) + 2(no-op and stop)
         self.n_actions_move = 4
         self.n_actions = self.n_actions_no_attack + self.n_enemies
 
@@ -859,10 +859,10 @@ class StarCraft2Env(MultiAgentEnv):
         """
         unit = self.get_unit_by_id(agent_id)
 
-        move_feats_dim = self.get_obs_move_feats_size()
-        enemy_feats_dim = self.get_obs_enemy_feats_size()
-        ally_feats_dim = self.get_obs_ally_feats_size()
-        own_feats_dim = self.get_obs_own_feats_size()
+        move_feats_dim = self.get_obs_move_feats_size()         # (n_actions_move, )
+        enemy_feats_dim = self.get_obs_enemy_feats_size()       # (n_enemies, n_features)
+        ally_feats_dim = self.get_obs_ally_feats_size()         # (n_allies, n_features)
+        own_feats_dim = self.get_obs_own_feats_size()           # 2
 
         move_feats = np.zeros(move_feats_dim, dtype=np.float32)
         enemy_feats = np.zeros(enemy_feats_dim, dtype=np.float32)
@@ -1161,7 +1161,7 @@ class StarCraft2Env(MultiAgentEnv):
 
         return move_feats
 
-    def get_obs_size(self):
+    def get_obs_size(self): 
         """Returns the size of the observation."""
         own_feats = self.get_obs_own_feats_size()
         move_feats = self.get_obs_move_feats_size()
