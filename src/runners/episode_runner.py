@@ -2,6 +2,7 @@ from envs import REGISTRY as env_REGISTRY
 from functools import partial
 from components.episode_buffer import EpisodeBatch
 import numpy as np
+import time
 
 
 class EpisodeRunner:
@@ -52,12 +53,13 @@ class EpisodeRunner:
         episode_return = 0
         self.mac.init_hidden(batch_size=self.batch_size)
 
+        start = time.time()
         while not terminated:
 
             pre_transition_data = {
                 "state": [self.env.get_state()],                    # numpy array, shape: (state_dim, )
-                "avail_actions": [self.env.get_avail_actions()],    # list of list, shape: (agent_num, action_dim)
-                "obs": [self.env.get_obs()]                         # list of numpy array, shape: (agent_num, obs_dim)
+                "obs": [self.env.get_obs()],                        # list of numpy array, shape: (agent_num, obs_dim)
+                "avail_actions": [self.env.get_avail_actions()]     # NOTE: The calling get_avail_actions() must be done after calling get_obs()
             }
 
             self.batch.update(pre_transition_data, ts=self.t)
@@ -83,8 +85,8 @@ class EpisodeRunner:
 
         last_data = {
             "state": [self.env.get_state()],
-            "avail_actions": [self.env.get_avail_actions()],
-            "obs": [self.env.get_obs()]
+            "obs": [self.env.get_obs()],
+            "avail_actions": [self.env.get_avail_actions()]
         }
         self.batch.update(last_data, ts=self.t)
 
@@ -93,7 +95,12 @@ class EpisodeRunner:
         # Fix memory leak
         cpu_actions = actions.to("cpu").numpy()
         self.batch.update({"actions": cpu_actions}, ts=self.t)
-        
+
+        if self.env.render:
+            end = time.time()
+            duration = end - start
+            time.sleep(1.2 * self.t - duration)
+
         cur_stats = self.test_stats if test_mode else self.train_stats
         cur_returns = self.test_returns if test_mode else self.train_returns
         log_prefix = "test_" if test_mode else ""
