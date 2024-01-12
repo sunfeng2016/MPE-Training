@@ -9,7 +9,7 @@ import numpy as np
 import datetime
 
 from .plane import Plane
-from vhmap.mcom import mcom
+from VISUALIZE.mcom import mcom
 from smac.env.multiagentenv import MultiAgentEnv
 from envs.multiplane.mpe_maps import get_map_params
 
@@ -30,6 +30,7 @@ class MultiPlaneEnv(MultiAgentEnv):
             cold_boot_step=10,
             max_observed_allies=5,
             max_observed_enemies=5,
+            max_outofbound=20,
             render=False,
             battlefield_size_x=800.0,
             battlefield_size_y=800.0,
@@ -55,6 +56,7 @@ class MultiPlaneEnv(MultiAgentEnv):
             reward_scale=True,
             reward_scale_rate=20,
             reward_collied_value=10,
+            reward_outofbound_value=0,
             reward_death_scale=0.5,
         ):
         # Set the parameters from map_name
@@ -111,6 +113,8 @@ class MultiPlaneEnv(MultiAgentEnv):
             self.bounds[3]
         ])
         
+        self.max_outofbound = max_outofbound
+		
         # Set the initial distance between red and blue planes
         self.init_dis = self.size_x * 0.50
 
@@ -148,6 +152,7 @@ class MultiPlaneEnv(MultiAgentEnv):
         self.reward_win = reward_win
         self.reward_defeat = reward_defeat
         self.reward_collied_value = reward_collied_value
+        self.reward_outofbound_value = reward_outofbound_value
         self.reward_death_scale = reward_death_scale
         self.reward_scale = reward_scale
         self.reward_scale_rate = reward_scale_rate
@@ -161,7 +166,7 @@ class MultiPlaneEnv(MultiAgentEnv):
         self.n_actions_attack = self.max_observed_enemies
         self.n_actions = self.n_actions_move + self.n_actions_attack
 
-        # Set the last action array
+        # Ser the last action array
         self.last_action = np.zeros((self.n_agents, self.n_actions))
 
         # Set unique token
@@ -170,7 +175,7 @@ class MultiPlaneEnv(MultiAgentEnv):
         # Set the render and replay path
         self.render_or_not = render
         self.replay_dir = replay_dir
-        self.replay_path = os.path.join(replay_dir, 'mpe_'+self.map_name, self.unique_token)
+        self.replay_path = os.path.join(replay_dir, 'mpe__'+self.map_name, self.unique_token)
 
         # Set the parameters to record the game result
         self.battles_won = 0
@@ -202,6 +207,7 @@ class MultiPlaneEnv(MultiAgentEnv):
             plane.time_per_step = self.time_per_step / self.frame_per_step
             plane.max_observed_allies = self.max_observed_allies
             plane.max_observed_enemies = self.max_observed_enemies
+            plane.max_outofbound = self.max_outofbound
             plane.initial_vel = self.move_amount
             plane.track_accleration = self.track_accleration
             plane.bounds = self.bounds
@@ -219,6 +225,8 @@ class MultiPlaneEnv(MultiAgentEnv):
         self.n_blue_alive = self.n_blues
 
         # Reset num of died planes
+        self.n_red_outofbound = 0
+        self.n_blue_outofbound = 0
         self.n_red_collied = 0
         self.n_blue_collied = 0
 
@@ -338,6 +346,9 @@ class MultiPlaneEnv(MultiAgentEnv):
             if self.render_or_not and i < self.frame_per_step - 1:
                 self.render(actions)
 
+        # Update out of bounds
+        self.update_outofbounds()
+
         # Update distance and angles matrices
         self.update_matrices()
 
@@ -413,7 +424,29 @@ class MultiPlaneEnv(MultiAgentEnv):
                 continue
             # Move the plane based on the fly action
             plane.fly(action)
+
+            # if plane.check_bounds():
+            #     if plane.red:
+            #         self.n_red_alive -= 1
+            #         self.n_red_outofbound += 1
+            #     else:
+            #         self.n_blue_alive -= 1
+            #         self.n_blue_outofbound += 1
+
     
+    def update_outofbounds(self):
+        for plane in self.planes:
+            if not plane.alive:
+                continue
+            if plane.check_bounds():
+                if plane.red:
+                    self.n_red_alive -= 1
+                    self.n_red_outofbound += 1
+                else:
+                    self.n_blue_alive -= 1
+                    self.n_blue_outofbound += 1
+                
+
     # -----------------------------------------------------game result---------------------------------------------------
     def game_result(self):
         """
@@ -689,13 +722,13 @@ class MultiPlaneEnv(MultiAgentEnv):
     
     def get_avail_agent_actions(self, agent):
         """
-        Return a list indicating the availability of actions for the given agent.
+        Returns a list indicating the availability of actions for the given agent.
         """
-        avail_attack_actions = [1] * agent.observed_enemies_num + [0] * (self.n_actions_attack - agent.observed_enemies_num)
-        avail_move_actions = agent.get_avail_move_actions()
-        avail_actions = avail_attack_actions + avail_move_actions
-        return avail_actions
+        n_valid_actions = agent.observed_enemies_num
+        n_invalid_actions = self.n_actions_attack - n_valid_actions
+        avail_actions = [1] * n_valid_actions + [0] * n_invalid_actions + [1] * self.n_actions_move
 
+        return avail_actions
 
     def get_avail_actions(self):
         """
@@ -826,6 +859,8 @@ class MultiPlaneEnv(MultiAgentEnv):
             # Check if the agent collided with the target
             if agent.collided:
                 reward += self.reward_collied_value
+            elif agent.out_of_bound:
+                reward += self.reward_outofbound_value
             else:
                 reward += self.reward_collied_value * self.reward_death_scale
 
@@ -848,7 +883,7 @@ class MultiPlaneEnv(MultiAgentEnv):
                 draw_mode='Threejs'
             )
             # Initialize v2d
-            self.visual_bridge.v3d_init()
+            self.visual_bridge.v2d_init()
             # Set font style
             self.visual_bridge.set_style(
                 'font', 
@@ -920,7 +955,7 @@ class MultiPlaneEnv(MultiAgentEnv):
             # Wait for the fonts to load
             for _ in range(50):
                 self.visual_bridge.空指令()
-                self.visual_bridge.v3d_show()
+                self.visual_bridge.v2d_show()
 
         # Get the number of alive planes
         n_Red_Planes = self.n_red_alive
@@ -937,12 +972,13 @@ class MultiPlaneEnv(MultiAgentEnv):
 
         # Create the label string
         label = '红方剩余飞机: {} 蓝方剩余飞机: {}\n'.format(self.n_red_alive, self.n_blue_alive) + \
+                '红方出界飞机: {} 蓝方出界飞机: {}\n'.format(self.n_red_outofbound, self.n_blue_outofbound) + \
                 '红方坠毁飞机: {} 蓝方坠毁飞机: {}\n'.format(self.n_red_collied, self.n_blue_collied) + \
                 '当前战况：{}\n'.format(who_is_winning) + \
                 '当前时间步: {}\n'.format(self._episode_steps + 1) + \
                 '当前回合: {}\n'.format(self._episode_count + 1)
                 
-        self.visual_bridge.v3d_object(
+        self.visual_bridge.v2dx(
             'tower|99999|Gray|10', 
             10, 0, 50, 
             ro_x=0, ro_y=0, ro_z=0,
@@ -951,19 +987,39 @@ class MultiPlaneEnv(MultiAgentEnv):
 
         
         # Render the bounds
-        boundaries = [
-            (100001, self.bounds[0], self.bounds[2], self.bounds[0], self.bounds[3]),
-            (100002, self.bounds[0], self.bounds[3], self.bounds[1], self.bounds[3]),
-            (100003, self.bounds[1], self.bounds[3], self.bounds[1], self.bounds[2]),
-            (100004, self.bounds[1], self.bounds[2], self.bounds[0], self.bounds[2]),
-        ]
-
-        for label, start_x, start_y, end_x, end_y in boundaries:
-            self.draw_line(label, start_x, start_y, end_x, end_y, type='fat', color='gray', size=2)
-
-        for label, start_x, start_y, end_x, end_y in boundaries:
-            self.draw_line(label+100, start_x * 0.8, start_y * 0.8, end_x * 0.8, end_y * 0.8, type='fat', color='gray', size=2)
-
+        self.visual_bridge.line3d(
+            'fat|{}|{}|{}'.format(100001, 'gray', 2),
+            x_arr = np.array([self.bounds[0], self.bounds[0]]),
+            y_arr = np.array([self.bounds[2], self.bounds[3]]),
+            z_arr = np.array([self.height, self.height]),
+            tension = 0,
+            opacity = 1
+        )
+        self.visual_bridge.line3d(
+            'fat|{}|{}|{}'.format(100002, 'Gray', 2),
+            x_arr = np.array([self.bounds[0], self.bounds[1]]),
+            y_arr = np.array([self.bounds[3], self.bounds[3]]),
+            z_arr = np.array([self.height, self.height]),
+            tension = 0,
+            opacity = 1
+        )
+        self.visual_bridge.line3d(
+            'fat|{}|{}|{}'.format(100003, 'Gray', 2),
+            x_arr = np.array([self.bounds[1], self.bounds[1]]),
+            y_arr = np.array([self.bounds[3], self.bounds[2]]),
+            z_arr = np.array([self.height, self.height]),
+            tension = 0,
+            opacity = 1
+        )
+        self.visual_bridge.line3d(
+            'fat|{}|{}|{}'.format(100004, 'Gray', 2),
+            x_arr = np.array([self.bounds[1], self.bounds[0]]),
+            y_arr = np.array([self.bounds[2], self.bounds[2]]),
+            z_arr = np.array([self.height, self.height]),
+            tension = 0,
+            opacity = 1
+        )
+        
         # Render the planes
         for i, plane in enumerate(self.planes):
             if not plane.alive and not plane.just_died:
@@ -977,7 +1033,7 @@ class MultiPlaneEnv(MultiAgentEnv):
             target = plane.target if plane.alive else None
             target_id = 0 if target is None else target.iden
 
-            self.visual_bridge.v3d_object(
+            self.visual_bridge.v2dx(
                 'plane|{}|{}|{}'.format(plane.iden, plane.color, plane_size),
                 x, y, self.height,
                 ro_x = roll, ro_y = 0, ro_z = yaw,
@@ -989,23 +1045,26 @@ class MultiPlaneEnv(MultiAgentEnv):
                 track_n_frame = 0
             )
             if target is not None and target.alive:
-                self.draw_line(-plane.iden, plane.state.pos[0], plane.state.pos[1], \
-                               target.state.pos[0], target.state.pos[1], type='simple', color=plane.color, size=0)
+                self.visual_bridge.line3d(
+                    'simple|{}|{}|{}'.format(-plane.iden, plane.color, 0),
+                    x_arr = np.array([plane.state.pos[0], target.state.pos[0]]),
+                    y_arr = np.array([plane.state.pos[1], target.state.pos[1]]),
+                    z_arr = np.array([self.height, self.height]),
+                    tension = 0,
+                    opacity = 0.5
+                )
             else:
-                self.draw_line(-plane.iden, 0, 0, 0, 0, type='simple', color=plane.color, size=0)
+                self.visual_bridge.line3d(
+                    'simple|{}|{}|{}'.format(-plane.iden, plane.color, 0),
+                    x_arr = np.array([0, 0]),
+                    y_arr = np.array([0, 0]),
+                    z_arr = np.array([self.height, self.height]),
+                    tension = 0,
+                    opacity = 0
+                )
     
         # Show the current frame
-        self.visual_bridge.v3d_show()
-
-    def draw_line(self, label, start_x, start_y, end_x, end_y, type='fat', color='gray', size=0):
-        self.visual_bridge.line3d(
-            '{}|{}|{}|{}'.format(type, label, color, size),
-            x_arr=np.array([start_x, end_x]),
-            y_arr=np.array([start_y, end_y]),
-            z_arr=np.array([self.height, self.height]),
-            tension=0,
-            opacity=1
-        )
+        self.visual_bridge.v2d_show()
     
     def get_roll(self, plane):
         """
@@ -1034,7 +1093,7 @@ class MultiPlaneEnv(MultiAgentEnv):
         else:
             return 0
 
-    # ----------------------------------------------env stats-------------------------------------------------
+    # ----------------------------------------------scripted policy-------------------------------------------------
 
     def get_stats(self):
         stats = {
@@ -1048,6 +1107,8 @@ class MultiPlaneEnv(MultiAgentEnv):
 			'n_blue_alive': self.n_blue_alive,
             'n_red_collied': self.n_red_collied,
             'n_blue_collied': self.n_blue_collied,
+            'n_red_outofbound': self.n_red_outofbound,
+			'n_blue_outofbound': self.n_blue_outofbound
         }
         return stats
     
@@ -1094,9 +1155,7 @@ class MultiPlaneEnv(MultiAgentEnv):
                 continue
 
             if plane.observed_enemies[0] is None:
-                avail_move_actions = plane.get_avail_move_actions()
-                available_actions = [index for index, action in enumerate(avail_move_actions) if action == 1]
-                actions[i] = random.choice(available_actions) + self.n_actions_attack
+                actions[i] = random.randint(0, self.n_actions_move - 1) + self.n_actions_attack
             else:
                 _, idx = self.sample_target(plane)
                 actions[i] = idx
@@ -1114,19 +1173,13 @@ class MultiPlaneEnv(MultiAgentEnv):
                 actions[i] = self.n_actions_attack
             else:
                 target = plane.nearest_observed_enemy(self.distances_matrix_red2blue[:,i], self.angles_matrix_blue2red[i,:], self.red_planes)
-                avail_move_actions = plane.get_avail_move_actions()
-                available_actions = [index for index, action in enumerate(avail_move_actions) if action == 1]
-                
                 if target is not None:
-                    if self.angles_matrix_blue2red[i, target.index] < 0 and (self.n_actions_move - 1) in available_actions:
+                    if self.angles_matrix_blue2red[i, target.index] < 0:
                         actions[i] = self.n_actions - 1
-                    elif self.angles_matrix_blue2red[i, target.index] > 0 and (self.n_actions_move - 2) in available_actions:
-                        actions[i] = self.n_actions - 2
                     else:
-                        actions[i] = random.choice(available_actions) + self.n_actions_attack
-
+                        actions[i] = self.n_actions - 2
                 else:
-                    actions[i] = random.choice(available_actions) + self.n_actions_attack
+                    actions[i] = random.randint(0, self.n_actions_move - 1) + self.n_actions_attack
 
         return actions
 

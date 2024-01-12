@@ -48,6 +48,7 @@ class Plane(object):
         self.collided = False
         self.alive = True
         self.just_died = False
+        self.out_of_bound = False
 
         # Time and frame settings
         self.time_per_step = 1
@@ -68,6 +69,8 @@ class Plane(object):
 
         # Bounds
         self.bounds = None
+        self.outofbound_num = 0
+        self.max_outofbound = 0
 
         # Tracking settings
         self.target = None
@@ -81,7 +84,9 @@ class Plane(object):
         self.alive = True
         self.just_died = False
         self.collided = False
+        self.out_of_bound = False
         self.target = None
+        self.outofbound_num = 0
         
         # Reset plane state, including position, direction and velocity
         self.state.pos = np.array([0.0, 0.0])
@@ -112,112 +117,21 @@ class Plane(object):
             self.max_observed_enemies + 5: np.pi / self.frame_per_step,             # turn left pi
             self.max_observed_enemies + 6: -np.pi / self.frame_per_step             # turn right pi
         })
-    
-        # get the bounds of the buffer field
-        self.xMin, self.xMax, self.yMin, self.yMax = self.bounds * 0.8
 
-        # set the direction of bounds
-        self.dir_px = np.array([-1, 0])
-        self.dir_nx = np.array([1, 0])
-        self.dir_py = np.array([0, -1])
-        self.dir_ny = np.array([0, 1])
-
-        # index of move action
-        self.action2index = {
-            'forward': 0,
-            'left45': 1,
-            'right45': 2,
-            'left90': 3,
-            'right90': 4,
-            'left180': 5,
-            'right180': 6 
-        }
-
-    def angle_between_direction(self, dir1, dir2):
-        """
-        Calculate the angle between two directions.
-
-        Args:
-            dir1 (np.ndarray): The first direction vector.
-            dir2 (np.ndarray): The second direction vector.
-
-        Returns:
-            float: The angle between the two directions in radians.
-        """
-        # Calculate the dot product of the two direction vectors
-        dot_product = np.dot(dir1, dir2)
-
-        # Calculate the angle in radians using the arccosine function
-        angle_rad = np.arccos(dot_product)
-
-        # Calculate the cross product of the two direction vectors
-        cross_product = np.cross(dir1, dir2)
-
-        # Check if the cross product is negative
-        if cross_product < 0:
-            # Reverse the sign of the angle
-            angle_rad = -angle_rad
-        
-        return angle_rad
-
-    def get_avail_move_actions(self):
+    def check_bounds(self):
         x, y = self.state.pos
-
-        in_buffer_cond = [
-            x <= self.xMin,                        # bound -x
-            x >= self.xMax,                        # bound +x
-            y <= self.yMin,                        # bound -y
-            y >= self.yMax                         # bound +y
-        ]
-
-
-        if not any(in_buffer_cond):
-            return [1] * 6
+        xMin, xMax, yMin, yMax = self.bounds
+        inbound =  (xMin < x < xMax) and (yMin < y < yMax)
         
-
-        angle = 0
-        actions = [0] * 6
-
-        if in_buffer_cond[0]:
-            angle = self.angle_between_direction(self.state.dir, self.dir_nx)
-        elif in_buffer_cond[1]:
-            angle = self.angle_between_direction(self.state.dir, self.dir_px)
-        elif in_buffer_cond[2]:
-            angle = self.angle_between_direction(self.state.dir, self.dir_ny)
-        elif in_buffer_cond[3]:
-            angle = self.angle_between_direction(self.state.dir, self.dir_py)
-        else:
-            raise ValueError("Unexpected condition")
-
-        if 0 <= angle < np.pi / 4:
-            # Forward, left45
-            actions[self.action2index['forward']] = 1
-            actions[self.action2index['left45']] = 1
-        elif np.pi / 4 <= angle < np.pi / 2:
-            # left45, left90
-            actions[self.action2index['left45']] = 1
-            actions[self.action2index['left90']] = 1
-        elif angle >= np.pi / 2:
-            # left90, left180
-            actions[self.action2index['left90']] = 1
-            actions[self.action2index['left180']] = 1
-        elif -np.pi / 4 <= angle < 0:
-            # Forward, left45
-            actions[self.action2index['forward']] = 1
-            actions[self.action2index['left45']] = 1
-        elif -np.pi / 2 <= angle < -np.pi / 4:
-            # left45, left90
-            actions[self.action2index['left45']] = 1
-            actions[self.action2index['left90']] = 1
-        elif angle <= -np.pi / 2:
-            # left90, left180
-            actions[self.action2index['left90']] = 1
-            actions[self.action2index['left180']] = 1
-        else:
-            raise ValueError("Unexpected condition")
-
-        return actions
-
+        if not inbound:
+            self.outofbound_num += 1
+            if self.outofbound_num >= self.max_outofbound:
+                self.out_of_bound = True
+                self.just_died = True
+                self.alive = False
+		
+        return self.out_of_bound
+    
     def fly(self, fly_action):
         # Backup the current state of the plane
         self.backup_state()
@@ -234,6 +148,11 @@ class Plane(object):
         # Check if the fly action need track
         if fly_action < self.max_observed_enemies:
             target = self.observed_enemies[fly_action]
+            if target is None:
+                print('error')
+                import time
+                time.sleep(10)
+
             assert target is not None
             self.target = target
             self.state.p_vel = self.track_accleration * self.initial_vel
