@@ -26,7 +26,7 @@ class MultiPlaneEnv(MultiAgentEnv):
             view_rad=500.0,
             view_ang=np.pi/3,
             communicate_rad=200.0,
-            collision_distance=10.0,
+            collision_distance=5.0,
             cold_boot_step=10,
             max_observed_allies=5,
             max_observed_enemies=5,
@@ -40,12 +40,12 @@ class MultiPlaneEnv(MultiAgentEnv):
             seed=None,
             obs_last_action=False,
             obs_timestep_number=False,
-            obs_id_embedding=True,
+            obs_id_embedding=False,
             obs_include_ally=False,
             obs_instead_of_state=False,
-            obs_own_direction=False,
-            obs_own_position=False,
-            state_last_action=True,
+            obs_own_direction=True,
+            obs_own_position=True,
+            state_last_action=False,
             state_timestep_number=False,
             state_include_enemy=False,
             state_id_embedding=False,
@@ -170,7 +170,7 @@ class MultiPlaneEnv(MultiAgentEnv):
         # Set the render and replay path
         self.render_or_not = render
         self.replay_dir = replay_dir
-        self.replay_path = os.path.join(replay_dir, 'mpe_'+self.map_name, self.unique_token)
+        self.replay_path = os.path.join(replay_dir, 'mpe_' + self.map_name, self.unique_token)
 
         # Set the parameters to record the game result
         self.battles_won = 0
@@ -218,10 +218,6 @@ class MultiPlaneEnv(MultiAgentEnv):
         self.n_red_alive = self.n_reds
         self.n_blue_alive = self.n_blues
 
-        # Reset num of died planes
-        self.n_red_collied = 0
-        self.n_blue_collied = 0
-
         # Reset win_counted and defeat_counted
         self.win_counted = False
         self.defeat_counted = False
@@ -248,14 +244,9 @@ class MultiPlaneEnv(MultiAgentEnv):
         # Reset the positions of the planes
         self.init_planes()
         
-        # Update matrices
-        self.update_matrices()
-
         if self.debug:
             logging.debug("Started Episode {}".format(
                 self._episode_count).center(60, '*'))
-
-        # return self.get_obs(), self.get_state()
 
     def init_planes(self):
         """
@@ -318,9 +309,7 @@ class MultiPlaneEnv(MultiAgentEnv):
         Returns:
             tuple: A tuple containing the reward, terminated flag, and additional info.
         """
-
         actions_allies = actions_red.to("cpu").numpy()
-        # actions_allies = actions_red.copy()
         self.last_action = np.eye(self.n_actions)[actions_allies]
 
         # Get the actions of blue team by the scripted policy
@@ -502,10 +491,6 @@ class MultiPlaneEnv(MultiAgentEnv):
         # Update number of alive planes
         self.n_red_alive -= len(red_indices)
         self.n_blue_alive -= len(blue_indices)
-
-        # Update number of died planes
-        self.n_red_collied += len(red_indices)
-        self.n_blue_collied += len(blue_indices)
     
     # -------------------------------------------------get observation---------------------------------------------------
     def get_obs_own_feats_size(self):
@@ -688,7 +673,6 @@ class MultiPlaneEnv(MultiAgentEnv):
         avail_move_actions = agent.get_avail_move_actions()
         avail_actions = avail_attack_actions + avail_move_actions
         return avail_actions
-
 
     def get_avail_actions(self):
         """
@@ -915,11 +899,6 @@ class MultiPlaneEnv(MultiAgentEnv):
                 self.visual_bridge.空指令()
                 self.visual_bridge.v3d_show()
 
-        # Get the number of alive planes
-        n_Red_Planes = self.n_red_alive
-        n_Blue_Planes = self.n_blue_alive
-
-
         # Determine who is winning
         if self.n_red_alive > self.n_blue_alive:
             who_is_winning = '红方领先'
@@ -930,7 +909,6 @@ class MultiPlaneEnv(MultiAgentEnv):
 
         # Create the label string
         label = '红方剩余飞机: {} 蓝方剩余飞机: {}\n'.format(self.n_red_alive, self.n_blue_alive) + \
-                '红方坠毁飞机: {} 蓝方坠毁飞机: {}\n'.format(self.n_red_collied, self.n_blue_collied) + \
                 '当前战况：{}\n'.format(who_is_winning) + \
                 '当前时间步: {}\n'.format(self._episode_steps + 1) + \
                 '当前回合: {}\n'.format(self._episode_count + 1)
@@ -940,7 +918,8 @@ class MultiPlaneEnv(MultiAgentEnv):
             10, 0, 50, 
             ro_x=0, ro_y=0, ro_z=0,
             label=label, 
-            label_color='Aqua', opacity=0)
+            label_color='Aqua', opacity=0
+        )
 
         # Render the bounds
         boundaries = [
@@ -1039,8 +1018,6 @@ class MultiPlaneEnv(MultiAgentEnv):
             "restarts": None,
             'n_red_alive': self.n_red_alive,
 			'n_blue_alive': self.n_blue_alive,
-            'n_red_collied': self.n_red_collied,
-            'n_blue_collied': self.n_blue_collied,
         }
         return stats
     
