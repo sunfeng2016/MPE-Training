@@ -112,15 +112,6 @@ class Plane(object):
             self.max_observed_enemies + 5: np.pi / self.frame_per_step,             # turn left pi
             self.max_observed_enemies + 6: -np.pi / self.frame_per_step             # turn right pi
         })
-    
-        # get the bounds of the buffer field
-        self.xMin, self.xMax, self.yMin, self.yMax = self.bounds * 0.8
-
-        # set the direction of bounds
-        self.dir_px = np.array([-1, 0])
-        self.dir_nx = np.array([1, 0])
-        self.dir_py = np.array([0, -1])
-        self.dir_ny = np.array([0, 1])
 
         # index of move action
         self.action2index = {
@@ -133,32 +124,38 @@ class Plane(object):
             'right180': 6 
         }
 
-    def angle_between_direction(self, dir1, dir2):
-        """
-        Calculate the angle between two directions.
+        # angles ranges
+        self.angle_ranges = {
+            (-np.pi,    -np.pi/2): ['right90',    'right180'  ],
+            (-np.pi/2,  -np.pi/4): ['right45',    'right90'   ],
+            (-np.pi/4,         0): ['forward',    'right45'   ],
+            (       0,   np.pi/4): ['forward',    'left45'    ],
+            ( np.pi/4,   np.pi/2): ['left45',     'left90'    ],
+            ( np.pi/2,   np.pi  ): ['left90',     'left180'   ]
+        }
+    
+        # get the bounds of the buffer field
+        self.xMin, self.xMax, self.yMin, self.yMax = self.bounds * 0.8
 
-        Args:
-            dir1 (np.ndarray): The first direction vector.
-            dir2 (np.ndarray): The second direction vector.
+        # set the direction of bounds
+        self.dir_px = np.array([-1, 0])
+        self.dir_nx = np.array([1, 0])
+        self.dir_py = np.array([0, -1])
+        self.dir_ny = np.array([0, 1])
 
-        Returns:
-            float: The angle between the two directions in radians.
-        """
-        # Calculate the dot product of the two direction vectors
-        dot_product = np.dot(dir1, dir2)
+        self.dir_list = [self.dir_nx, self.dir_px, self.dir_ny, self.dir_py]
 
-        # Calculate the angle in radians using the arccosine function
-        angle_rad = np.arccos(dot_product)
 
-        # Calculate the cross product of the two direction vectors
-        cross_product = np.cross(dir1, dir2)
-
-        # Check if the cross product is negative
-        if cross_product < 0:
-            # Reverse the sign of the angle
-            angle_rad = -angle_rad
+    def _get_avail_actions(self, angle):
+        actions = [0] * 7
         
-        return angle_rad
+        for (lower, upper), action_types in self.angle_ranges.items():
+            if lower <= angle < upper:
+                for action_type in action_types:
+                    actions[self.action2index[action_type]] = 1
+                return actions
+
+        return actions
 
     def get_avail_move_actions(self):
         x, y = self.state.pos
@@ -170,53 +167,12 @@ class Plane(object):
             y >= self.yMax                         # bound +y
         ]
 
-
-        if not any(in_buffer_cond):
-            return [1] * 6
+        for i, cond in enumerate(in_buffer_cond):
+            if cond:
+                angle = self.angle_between_direction(self.state.dir, self.dir_list[i])
+                return self._get_avail_actions(angle)
         
-
-        angle = 0
-        actions = [0] * 6
-
-        if in_buffer_cond[0]:
-            angle = self.angle_between_direction(self.state.dir, self.dir_nx)
-        elif in_buffer_cond[1]:
-            angle = self.angle_between_direction(self.state.dir, self.dir_px)
-        elif in_buffer_cond[2]:
-            angle = self.angle_between_direction(self.state.dir, self.dir_ny)
-        elif in_buffer_cond[3]:
-            angle = self.angle_between_direction(self.state.dir, self.dir_py)
-        else:
-            raise ValueError("Unexpected condition")
-
-        if 0 <= angle < np.pi / 4:
-            # Forward, left45
-            actions[self.action2index['forward']] = 1
-            actions[self.action2index['left45']] = 1
-        elif np.pi / 4 <= angle < np.pi / 2:
-            # left45, left90
-            actions[self.action2index['left45']] = 1
-            actions[self.action2index['left90']] = 1
-        elif angle >= np.pi / 2:
-            # left90, left180
-            actions[self.action2index['left90']] = 1
-            actions[self.action2index['left180']] = 1
-        elif -np.pi / 4 <= angle < 0:
-            # Forward, left45
-            actions[self.action2index['forward']] = 1
-            actions[self.action2index['left45']] = 1
-        elif -np.pi / 2 <= angle < -np.pi / 4:
-            # left45, left90
-            actions[self.action2index['left45']] = 1
-            actions[self.action2index['left90']] = 1
-        elif angle <= -np.pi / 2:
-            # left90, left180
-            actions[self.action2index['left90']] = 1
-            actions[self.action2index['left180']] = 1
-        else:
-            raise ValueError("Unexpected condition")
-
-        return actions
+        return [1] * 7
 
     def fly(self, fly_action):
         # Backup the current state of the plane
@@ -365,4 +321,31 @@ class Plane(object):
         
         # Update the direction vector with the new components
         return np.array([x, y])
+
+    def angle_between_direction(self, dir1, dir2):
+        """
+        Calculate the angle between two directions.
+
+        Args:
+            dir1 (np.ndarray): The first direction vector.
+            dir2 (np.ndarray): The second direction vector.
+
+        Returns:
+            float: The angle between the two directions in radians.
+        """
+        # Calculate the dot product of the two direction vectors
+        dot_product = np.dot(dir1, dir2)
+
+        # Calculate the angle in radians using the arccosine function
+        angle_rad = np.arccos(dot_product)
+
+        # Calculate the cross product of the two direction vectors
+        cross_product = np.cross(dir1, dir2)
+
+        # Check if the cross product is negative
+        if cross_product < 0:
+            # Reverse the sign of the angle
+            angle_rad = -angle_rad
+        
+        return angle_rad
     

@@ -1124,7 +1124,6 @@ class MultiPlaneEnv(MultiAgentEnv):
                         actions[i] = self.n_actions - 2
                     else:
                         actions[i] = random.choice(available_actions) + self.n_actions_attack
-
                 else:
                     actions[i] = random.choice(available_actions) + self.n_actions_attack
 
