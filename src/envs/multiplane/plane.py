@@ -146,7 +146,7 @@ class Plane(object):
         self.dir_list = [self.dir_nx, self.dir_px, self.dir_ny, self.dir_py]
 
 
-    def _get_avail_actions(self, angle):
+    def get_avail_actions(self, angle):
         actions = [0] * 7
         
         for (lower, upper), action_types in self.angle_ranges.items():
@@ -170,7 +170,7 @@ class Plane(object):
         for i, cond in enumerate(in_buffer_cond):
             if cond:
                 angle = self.angle_between_direction(self.state.dir, self.dir_list[i])
-                return self._get_avail_actions(angle)
+                return self.get_avail_actions(angle)
         
         return [1] * 7
 

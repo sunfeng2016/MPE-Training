@@ -335,23 +335,9 @@ class MultiPlaneEnv(MultiAgentEnv):
         # Perform actions for each frame per step
         for i in range(self.frame_per_step):
             self.meta_step(actions)
-            if self.render_or_not and i < self.frame_per_step - 1:
+            self.update_collision()
+            if self.render_or_not:
                 self.render(actions)
-
-        # Update distance and angles matrices
-        self.update_matrices()
-
-        # Update collision state of game objects
-        self.update_collision()
-
-        # Render
-        if self.render_or_not:
-            self.render(actions)
-
-        # Update enemies and allies
-        if self.obs_include_ally:
-            self.update_observed_allies()
-        self.update_observed_enemies()
 
         # Update step counter
         self._total_steps += 1
@@ -476,8 +462,21 @@ class MultiPlaneEnv(MultiAgentEnv):
         Update collision information for collided pairs of planes.
         """
 
+        red_positions, _, red_alive = self.get_plane_info(self.red_planes)
+        blue_positions, _, blue_alive = self.get_plane_info(self.blue_planes)
+        
+        # Calculate the distances between the red and blue planes
+        delta = red_positions[:, np.newaxis, :] - blue_positions[np.newaxis, :, :]                    
+        distances = np.linalg.norm(delta, axis=2) 
+
+        # Create a mask for the alive planes
+        valid_mask = red_alive[:, np.newaxis] & blue_alive[np.newaxis, :]
+
+        # Update the distances matrix and angles matrix
+        distances_matrix_red2blue = np.where(valid_mask, distances, np.inf)
+
         # Find the indices of collided pairs
-        red_indices, blue_indices = np.where(self.distances_matrix_red2blue < self.collision_distance)
+        red_indices, blue_indices = np.where(distances_matrix_red2blue < self.collision_distance)
 
         if len(red_indices) == 0:
             return
@@ -507,20 +506,6 @@ class MultiPlaneEnv(MultiAgentEnv):
         # Update number of died planes
         self.n_red_collied += len(red_indices)
         self.n_blue_collied += len(blue_indices)
-
-        # Set distances and angles to infinity for the collided pairs
-        self.distances_matrix_red2blue[red_indices, :] = np.inf
-        self.distances_matrix_red2blue[:, blue_indices] = np.inf
-
-        self.angles_matrix_red2blue[red_indices, :] = np.inf
-        self.angles_matrix_red2blue[:, blue_indices] = np.inf
-        
-        self.angles_matrix_blue2red[red_indices, :] = np.inf
-        self.angles_matrix_blue2red[:, blue_indices] = np.inf
-
-        if self.distances_matrix_red2red is not None:
-            self.distances_matrix_red2red[red_indices, :] = np.inf
-            self.distances_matrix_red2red[:, red_indices] = np.inf
     
     # -------------------------------------------------get observation---------------------------------------------------
     def get_obs_own_feats_size(self):
@@ -676,6 +661,14 @@ class MultiPlaneEnv(MultiAgentEnv):
         NOTE: Agents should have access only to their local observations
         during decentralised execution.
         """
+        # Update distance and angles matrices
+        self.update_matrices()
+        
+        # Update enemies and allies
+        if self.obs_include_ally:
+            self.update_observed_allies()
+        self.update_observed_enemies()
+
         agents_obs = [self.get_obs_agent(plane) for plane in self.red_planes]
 
         return agents_obs
@@ -949,7 +942,6 @@ class MultiPlaneEnv(MultiAgentEnv):
             label=label, 
             label_color='Aqua', opacity=0)
 
-        
         # Render the bounds
         boundaries = [
             (100001, self.bounds[0], self.bounds[2], self.bounds[0], self.bounds[3]),
@@ -988,6 +980,7 @@ class MultiPlaneEnv(MultiAgentEnv):
                 label_color = 'white',
                 track_n_frame = 0
             )
+            
             if target is not None and target.alive:
                 self.draw_line(-plane.iden, plane.state.pos[0], plane.state.pos[1], \
                                target.state.pos[0], target.state.pos[1], type='simple', color=plane.color, size=0)
@@ -1094,9 +1087,8 @@ class MultiPlaneEnv(MultiAgentEnv):
                 continue
 
             if plane.observed_enemies[0] is None:
-                avail_move_actions = plane.get_avail_move_actions()
-                available_actions = [index for index, action in enumerate(avail_move_actions) if action == 1]
-                actions[i] = random.choice(available_actions) + self.n_actions_attack
+                avail_move_actions = np.nonzero(plane.get_avail_move_actions())[0]
+                actions[i] = random.choice(avail_move_actions) + self.n_actions_attack
             else:
                 _, idx = self.sample_target(plane)
                 actions[i] = idx
@@ -1114,18 +1106,18 @@ class MultiPlaneEnv(MultiAgentEnv):
                 actions[i] = self.n_actions_attack
             else:
                 target = plane.nearest_observed_enemy(self.distances_matrix_red2blue[:,i], self.angles_matrix_blue2red[i,:], self.red_planes)
-                avail_move_actions = plane.get_avail_move_actions()
-                available_actions = [index for index, action in enumerate(avail_move_actions) if action == 1]
+                avail_move_actions = np.nonzero(plane.get_avail_move_actions())[0]
                 
                 if target is not None:
-                    if self.angles_matrix_blue2red[i, target.index] < 0 and (self.n_actions_move - 1) in available_actions:
+                    angle_difference = self.angles_matrix_blue2red[i, target.index]
+                    if angle_difference < 0 and (self.n_actions_move - 1) in avail_move_actions:
                         actions[i] = self.n_actions - 1
-                    elif self.angles_matrix_blue2red[i, target.index] > 0 and (self.n_actions_move - 2) in available_actions:
+                    elif angle_difference > 0 and (self.n_actions_move - 2) in avail_move_actions:
                         actions[i] = self.n_actions - 2
                     else:
-                        actions[i] = random.choice(available_actions) + self.n_actions_attack
+                        actions[i] = random.choice(avail_move_actions) + self.n_actions_attack
                 else:
-                    actions[i] = random.choice(available_actions) + self.n_actions_attack
+                    actions[i] = random.choice(avail_move_actions) + self.n_actions_attack
 
         return actions
 
