@@ -1163,12 +1163,12 @@ class MultiPlaneEnv(MultiAgentEnv):
         return actions
 
     # ------------------------------------------------others--------------------------------------------------
-    def get_y_range(self, num_plans):
+    def get_y_range(self, num_planes):
         """
-        Get the y range based on the number of plans.
+        Get the y range based on the number of planes.
         
         Args:
-            num_plans (int): The number of plans.
+            num_planes (int): The number of planes.
         
         Returns:
             float: The calculated y range.
@@ -1177,9 +1177,9 @@ class MultiPlaneEnv(MultiAgentEnv):
         y_range = self.size_y * 0.5
         
         # Adjust y range based on number of plans
-        if num_plans in range(0, 60):
+        if num_planes in range(0, 60):
             y_range *= 0.5
-        if num_plans in range(60, 100):
+        if num_planes in range(60, 100):
             y_range *= 0.8
         
         return y_range

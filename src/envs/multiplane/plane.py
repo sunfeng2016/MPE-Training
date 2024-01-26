@@ -71,6 +71,10 @@ class Plane(object):
 
         # Tracking settings
         self.target = None
+
+        # Init Actions num
+        self.n_actions_move = 7
+        self.n_actions_attack = 5
     
     def reset(self):
         """
@@ -113,29 +117,30 @@ class Plane(object):
             self.max_observed_enemies + 6: -np.pi / self.frame_per_step             # turn right pi
         })
 
-        # index of move action
-        self.action2index = {
-            'forward': 0,
-            'left45': 1,
-            'right45': 2,
-            'left90': 3,
-            'right90': 4,
-            'left180': 5,
-            'right180': 6 
-        }
+        # # index of move action
+        # self.action2index = {
+        #     'forward': 0,
+        #     'left45': 1,
+        #     'right45': 2,
+        #     'left90': 3,
+        #     'right90': 4,
+        #     'left180': 5,
+        #     'right180': 6 
+        # }
 
-        # angles ranges
-        self.angle_ranges = {
-            (-np.pi,    -np.pi/2): ['right90',    'right180'  ],
-            (-np.pi/2,  -np.pi/4): ['right45',    'right90'   ],
-            (-np.pi/4,         0): ['forward',    'right45'   ],
-            (       0,   np.pi/4): ['forward',    'left45'    ],
-            ( np.pi/4,   np.pi/2): ['left45',     'left90'    ],
-            ( np.pi/2,   np.pi  ): ['left90',     'left180'   ]
-        }
+        # # angles ranges
+        # self.angle_ranges = {
+        #     (-np.pi,    -np.pi/2): ['right90',    'right180'  ],
+        #     (-np.pi/2,  -np.pi/4): ['right45',    'right90'   ],
+        #     (-np.pi/4,         0): ['forward',    'right45'   ],
+        #     (       0,   np.pi/4): ['forward',    'left45'    ],
+        #     ( np.pi/4,   np.pi/2): ['left45',     'left90'    ],
+        #     ( np.pi/2,   np.pi  ): ['left90',     'left180'   ]
+        # }
     
         # get the bounds of the buffer field
-        self.xMin, self.xMax, self.yMin, self.yMax = self.bounds * 0.8
+        # self.xMin, self.xMax, self.yMin, self.yMax = self.bounds * 0.8
+        self.xMin, self.xMax, self.yMin, self.yMax = self.bounds * 0.9
 
         # set the direction of bounds
         self.dir_px = np.array([-1, 0])
@@ -143,36 +148,60 @@ class Plane(object):
         self.dir_py = np.array([0, -1])
         self.dir_ny = np.array([0, 1])
 
-        self.dir_list = [self.dir_nx, self.dir_px, self.dir_ny, self.dir_py]
+        self.dir_list = (self.dir_nx, self.dir_px, self.dir_ny, self.dir_py)
 
+
+    # def get_avail_actions(self, angle):
+    #     actions = [0] * self.n_actions_move
+        
+    #     for (lower, upper), action_types in self.angle_ranges.items():
+    #         if lower <= angle < upper:
+    #             for action_type in action_types:
+    #                 actions[self.action2index[action_type]] = 1
+    #             return actions
+
+    #     return actions
 
     def get_avail_actions(self, angle):
-        actions = [0] * 7
-        
-        for (lower, upper), action_types in self.angle_ranges.items():
-            if lower <= angle < upper:
-                for action_type in action_types:
-                    actions[self.action2index[action_type]] = 1
-                return actions
+        actions = [0] * self.n_actions_move
 
+        if -np.pi <= angle < -np.pi/2:
+            actions[4] = 1      # right90
+            actions[6] = 1      # right180
+        elif -np.pi/2 <= angle < -np.pi/4:
+            actions[2] = 1      # right45
+            actions[4] = 1      # right90
+        elif -np.pi/4 <= angle < 0:
+            actions[0] = 1      # forward
+            actions[2] = 1      # right45
+        elif 0 <= angle < np.pi/4:
+            actions[0] = 1      # forward
+            actions[1] = 1      # left45
+        elif np.pi/4 <= angle < np.pi/2:
+            actions[1] = 1      # left45
+            actions[3] = 1      # left90
+        elif np.pi/2 <= angle < np.pi:
+            actions[3] = 1      # left90
+            actions[5] = 1      # left180
+    
         return actions
 
     def get_avail_move_actions(self):
         x, y = self.state.pos
 
-        in_buffer_cond = [
+        in_buffer_cond = (
             x <= self.xMin,                        # bound -x
             x >= self.xMax,                        # bound +x
             y <= self.yMin,                        # bound -y
             y >= self.yMax                         # bound +y
-        ]
+        )
 
-        for i, cond in enumerate(in_buffer_cond):
-            if cond:
+        for i in range(4):
+            if in_buffer_cond[i]:
                 angle = self.angle_between_direction(self.state.dir, self.dir_list[i])
                 return self.get_avail_actions(angle)
         
-        return [1] * 7
+        return [1] * self.n_actions_move
 
     def fly(self, fly_action):
         # Backup the current state of the plane
@@ -188,7 +217,7 @@ class Plane(object):
         rotation_angle = self.rotation_mapping[fly_action]
 
         # Check if the fly action need track
-        if fly_action < self.max_observed_enemies:
+        if fly_action < self.n_actions_attack:
             target = self.observed_enemies[fly_action]
             assert target is not None
             self.target = target
@@ -221,6 +250,7 @@ class Plane(object):
         if len(valid_indices) == 0:
             # If no allies are within the field of view, set observed allies to None
             self.observed_allies = [None] * self.max_observed_allies
+            return
 
         # Sort the indices based on the distances
         sorted_indices = valid_indices[np.argsort(distances[valid_indices])]
@@ -230,7 +260,7 @@ class Plane(object):
 
         # If the number of observed allies is less than the maximum number allowed,
         # add None values to the list to fill it up.
-        observed_allies += max(0, self.max_observed_allies - len(observed_allies)) * [None]
+        observed_allies += [None] * max(0, self.max_observed_allies - len(observed_allies))
 
         # Set the observed allies to the updated list
         self.observed_allies = observed_allies[:self.max_observed_allies]
@@ -258,6 +288,7 @@ class Plane(object):
             # If no enemies are within the field of view and view radius, set observed_enemies to None
             self.observed_enemies = [None] * self.max_observed_enemies
             self.observed_enemies_num = 0
+            return
 
         # Sort the indices based on the distances
         sorted_indices = valid_indices[np.argsort(distances[valid_indices])]
@@ -270,7 +301,7 @@ class Plane(object):
 
         # If the number of observed enemies is less than the maximum number allowed,
         # add None values to the list to fill it up.
-        observed_enemies += max(0, self.max_observed_enemies - len(observed_enemies)) * [None]
+        observed_enemies += [None] * max(0, self.max_observed_enemies - len(observed_enemies))
 
         # Update the observed_enemies list
         self.observed_enemies = observed_enemies[:self.max_observed_enemies]

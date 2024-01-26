@@ -15,6 +15,21 @@ from envs.multiplane.mpe_maps import get_map_params
 
 from absl import logging
 
+Actions = {
+    "0": "track0",
+    "1": "track1",
+    "2": "track2",
+    "3": "track3",
+    "4": "track4",
+    "5": "Forward",
+    "6": "left45",
+    "7": "right45",
+    "8": "left90",
+    "9": "right90",
+    "10": "left180",
+    "11": "right180"
+}
+
 class MultiPlaneEnv(MultiAgentEnv):
     def __init__(
             self,
@@ -22,7 +37,6 @@ class MultiPlaneEnv(MultiAgentEnv):
             id_embedding_size=2,
             time_per_step=6,
             frame_per_step=6,
-            battlefield_height=4.0,
             view_rad=500.0,
             view_ang=np.pi/3,
             communicate_rad=200.0,
@@ -31,8 +45,6 @@ class MultiPlaneEnv(MultiAgentEnv):
             max_observed_allies=5,
             max_observed_enemies=5,
             render=False,
-            battlefield_size_x=800.0,
-            battlefield_size_y=800.0,
             move_amount=6.0,
             track_accleration=1.5,
             replay_dir="RenderReplay",
@@ -47,7 +59,7 @@ class MultiPlaneEnv(MultiAgentEnv):
             obs_own_position=True,
             state_last_action=False,
             state_timestep_number=False,
-            state_include_enemy=False,
+            state_include_enemy=True,
             state_id_embedding=False,
             reward_sparse=False,
             reward_win=200,
@@ -63,38 +75,19 @@ class MultiPlaneEnv(MultiAgentEnv):
         self.n_reds = map_params['n_reds']
         self.n_blues = map_params['n_blues']
         self.episode_limit = map_params['limit']
-        
+        self.size_x = map_params['size_x']
+        self.size_y = map_params['size_y']
+        self.height = map_params['height']
+        self.init_dis = map_params['init_dis']
+        self.red_y_range = map_params['red_y_range']
+        self.blue_y_range = map_params['blue_y_range']
+
         # Set the number of agent and enemies
         self.n_agents = self.n_reds
         self.n_enemies = self.n_blues
 
         # Calculate the total number of planes
         self.n_planes = self.n_reds + self.n_blues
-
-        # Initialize epsido and time step counters
-        self._episode_count = 0
-        self._episode_steps = 0
-        self._total_steps = 0
-
-        # Set time per step and frames per step
-        self.time_per_step = time_per_step
-        self.frame_per_step = frame_per_step
-
-        # Set the move amount per step for each plane
-        self.move_amount = move_amount
-        self.track_accleration = track_accleration
-
-        # Set the height and size of the battlefield
-        self.height = battlefield_height
-        self.size_x = battlefield_size_x
-        self.size_y = battlefield_size_y
-
-        # Set the view range
-        self.view_rad = view_rad
-        self.view_ang = view_ang
-        
-        # Set the communicate range
-        self.communicate_rad = communicate_rad
 
         # Set the boundaries of the battlefield
         self.wall_pos = np.array([
@@ -110,19 +103,13 @@ class MultiPlaneEnv(MultiAgentEnv):
             self.bounds[1],
             self.bounds[3]
         ])
+
+        # Set the view range
+        self.view_rad = view_rad
+        self.view_ang = view_ang
         
-        # Set the initial distance between red and blue planes
-        self.init_dis = self.size_x * 0.50
-
-        # Calculate the y range for red and blue planes
-        self.red_y_range = self.get_y_range(self.n_reds)
-        self.blue_y_range = self.get_y_range(self.n_blues)
-
-        # Set the collision distances
-        self.collision_distance = collision_distance
-
-        # Set the params for scripted policy
-        self.cold_boot_step = cold_boot_step
+        # Set the communicate range
+        self.communicate_rad = communicate_rad
 
         # Set the max observed num
         self.max_observed_allies = max_observed_allies
@@ -172,10 +159,35 @@ class MultiPlaneEnv(MultiAgentEnv):
         self.replay_dir = replay_dir
         self.replay_path = os.path.join(replay_dir, 'mpe_' + self.map_name, self.unique_token)
 
+        # Initialize epsido and time step counters
+        self._episode_count = 0
+        self._episode_steps = 0
+        self._total_steps = 0
+
+        # Set time per step and frames per step
+        self.time_per_step = time_per_step
+        self.frame_per_step = frame_per_step
+
+        # Set the move amount per step for each plane
+        self.move_amount = move_amount
+        self.track_accleration = track_accleration
+
+        # Set the collision distances
+        self.collision_distance = collision_distance
+
+        # Set the params for scripted policy
+        self.cold_boot_step = cold_boot_step
+
         # Set the parameters to record the game result
         self.battles_won = 0
         self.battles_game = 0
         self.timeouts = 0
+
+        # Set Debug
+        self.debug = debug
+
+        # Set Seed
+        self._seed = seed
 
         # Get the ID embeddings for the planes
         self.id_embedding_size = id_embedding_size
@@ -185,12 +197,6 @@ class MultiPlaneEnv(MultiAgentEnv):
         self.red_planes = [Plane(iden=i, index=i, color='red') for i in range(self.n_reds)]
         self.blue_planes = [Plane(iden=i+self.n_reds, index=i, color='blue') for i in range(self.n_blues)]
         self.planes = self.red_planes + self.blue_planes
-
-        # Set Debug
-        self.debug = debug
-
-        # Set Seed
-        self._seed = seed
 
         # Set the other arrtibutes of planes
         for i, plane in enumerate(self.planes):
@@ -205,6 +211,8 @@ class MultiPlaneEnv(MultiAgentEnv):
             plane.initial_vel = self.move_amount
             plane.track_accleration = self.track_accleration
             plane.bounds = self.bounds
+            plane.n_actions_attack = self.n_actions_attack
+            plane.n_actions_move = self.n_actions_move
     
     # -----------------------------------------------------reset-----------------------------------------------------
     def reset(self):
@@ -242,15 +250,15 @@ class MultiPlaneEnv(MultiAgentEnv):
         self.last_action = np.zeros((self.n_agents, self.n_actions))
 
         # Reset the positions of the planes
-        self.init_planes()
+        self.reset_planes()
         
         if self.debug:
             logging.debug("Started Episode {}".format(
                 self._episode_count).center(60, '*'))
 
-    def init_planes(self):
+    def reset_planes(self):
         """
-        Initialize the positions and other properties of the planes.
+        Reset the positions and other properties of the planes.
         """
         # Generate a random angle between -pi and pi
         theta = (2 * np.random.rand() - 1) * np.pi
@@ -368,6 +376,9 @@ class MultiPlaneEnv(MultiAgentEnv):
 
         if terminated:
             self._episode_count += 1
+            # info['n_red_alive'] = self.n_red_alive
+            # info['n_blue_alive'] = self.n_blue_alive
+            # info['win_rate'] = self.battles_won / self.battles_game
         
         if self.reward_scale:
             reward /= self.max_reward / self.reward_scale_rate
@@ -669,10 +680,13 @@ class MultiPlaneEnv(MultiAgentEnv):
         """
         Return a list indicating the availability of actions for the given agent.
         """
-        avail_attack_actions = [1] * agent.observed_enemies_num + [0] * (self.n_actions_attack - agent.observed_enemies_num)
-        avail_move_actions = agent.get_avail_move_actions()
-        avail_actions = avail_attack_actions + avail_move_actions
-        return avail_actions
+        if agent.alive:
+            avail_attack_actions = [1] * agent.observed_enemies_num + [0] * (self.n_actions_attack - agent.observed_enemies_num)
+            avail_move_actions = agent.get_avail_move_actions()
+            avail_actions = avail_attack_actions + avail_move_actions
+            return avail_actions
+        else:
+            return [1] + [0] * (self.n_actions - 1)
 
     def get_avail_actions(self):
         """
@@ -784,12 +798,12 @@ class MultiPlaneEnv(MultiAgentEnv):
         Returns:
             int: The reward value.
         """
-        # Initialize the reward
-        reward = 0
-        
         # Check if the reward is sparse
         if self.reward_sparse:
             return 0
+
+        # Initialize the reward
+        reward = 0
         
         # Calculate the reward for each agent
         for agent in self.red_planes:
@@ -932,8 +946,8 @@ class MultiPlaneEnv(MultiAgentEnv):
         for label, start_x, start_y, end_x, end_y in boundaries:
             self.draw_line(label, start_x, start_y, end_x, end_y, type='fat', color='gray', size=2)
 
-        for label, start_x, start_y, end_x, end_y in boundaries:
-            self.draw_line(label+100, start_x * 0.8, start_y * 0.8, end_x * 0.8, end_y * 0.8, type='fat', color='gray', size=2)
+        # for label, start_x, start_y, end_x, end_y in boundaries:
+        #     self.draw_line(label+100, start_x * 0.8, start_y * 0.8, end_x * 0.8, end_y * 0.8, type='fat', color='gray', size=2)
 
         # Render the planes
         for i, plane in enumerate(self.planes):
@@ -1099,26 +1113,6 @@ class MultiPlaneEnv(MultiAgentEnv):
         return actions
 
     # ------------------------------------------------others--------------------------------------------------
-    def get_y_range(self, num_plans):
-        """
-        Get the y range based on the number of plans.
-        
-        Args:
-            num_plans (int): The number of plans.
-        
-        Returns:
-            float: The calculated y range.
-        """
-        # Initialize y range
-        y_range = self.size_y
-        
-        # Adjust y range based on number of plans
-        if num_plans in range(0, 60):
-            y_range *= 0.5
-        if num_plans in range(60, 100):
-            y_range *= 0.8
-        
-        return y_range
 
     def get_position_embeddings(self, dtype=np.float32):
         """
