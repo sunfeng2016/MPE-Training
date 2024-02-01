@@ -486,22 +486,28 @@ class MultiPlaneEnv(MultiAgentEnv):
             red_plane = self.red_planes[red_index]
             blue_plane = self.blue_planes[blue_index]
 
+            if not (red_plane.alive and blue_plane.alive):
+                continue
+
             # Set planes as not alive and collided
             red_plane.alive = False
             blue_plane.alive = False
             red_plane.just_died = True
             blue_plane.just_died = True
 
+            self.n_red_alive -= 1
+            self.n_blue_alive -= 1
+
             if red_plane.target is not None and red_plane.target.index == blue_plane.index:
                 red_plane.collided = True
 
-        # Remove duplicates
-        red_indices = np.unique(red_indices)
-        blue_indices = np.unique(blue_indices)
+        # # Remove duplicates
+        # red_indices = np.unique(red_indices)
+        # blue_indices = np.unique(blue_indices)
 
-        # Update number of alive planes
-        self.n_red_alive -= len(red_indices)
-        self.n_blue_alive -= len(blue_indices)
+        # # Update number of alive planes
+        # self.n_red_alive -= len(red_indices)
+        # self.n_blue_alive -= len(blue_indices)
     
     # -------------------------------------------------get observation---------------------------------------------------
     def get_obs_own_feats_size(self):
@@ -531,7 +537,7 @@ class MultiPlaneEnv(MultiAgentEnv):
             if self.obs_id_embedding:
                 nf_ally += self.id_embedding_size
             if self.obs_last_action:
-                nf_ally += self.n_action
+                nf_ally += self.n_actions
 
         return self.max_observed_allies, nf_ally
     

@@ -116,30 +116,8 @@ class Plane(object):
             self.max_observed_enemies + 5: np.pi / self.frame_per_step,             # turn left pi
             self.max_observed_enemies + 6: -np.pi / self.frame_per_step             # turn right pi
         })
-
-        # # index of move action
-        # self.action2index = {
-        #     'forward': 0,
-        #     'left45': 1,
-        #     'right45': 2,
-        #     'left90': 3,
-        #     'right90': 4,
-        #     'left180': 5,
-        #     'right180': 6 
-        # }
-
-        # # angles ranges
-        # self.angle_ranges = {
-        #     (-np.pi,    -np.pi/2): ['right90',    'right180'  ],
-        #     (-np.pi/2,  -np.pi/4): ['right45',    'right90'   ],
-        #     (-np.pi/4,         0): ['forward',    'right45'   ],
-        #     (       0,   np.pi/4): ['forward',    'left45'    ],
-        #     ( np.pi/4,   np.pi/2): ['left45',     'left90'    ],
-        #     ( np.pi/2,   np.pi  ): ['left90',     'left180'   ]
-        # }
     
         # get the bounds of the buffer field
-        # self.xMin, self.xMax, self.yMin, self.yMax = self.bounds * 0.8
         self.xMin, self.xMax, self.yMin, self.yMax = self.bounds * 0.9
 
         # set the direction of bounds
@@ -150,17 +128,6 @@ class Plane(object):
 
         self.dir_list = (self.dir_nx, self.dir_px, self.dir_ny, self.dir_py)
 
-
-    # def get_avail_actions(self, angle):
-    #     actions = [0] * self.n_actions_move
-        
-    #     for (lower, upper), action_types in self.angle_ranges.items():
-    #         if lower <= angle < upper:
-    #             for action_type in action_types:
-    #                 actions[self.action2index[action_type]] = 1
-    #             return actions
-
-    #     return actions
 
     def get_avail_actions(self, angle):
         actions = [0] * self.n_actions_move
@@ -180,9 +147,11 @@ class Plane(object):
         elif np.pi/4 <= angle < np.pi/2:
             actions[1] = 1      # left45
             actions[3] = 1      # left90
-        elif np.pi/2 <= angle < np.pi:
+        elif np.pi/2 <= angle <= np.pi:
             actions[3] = 1      # left90
             actions[5] = 1      # left180
+        else:
+            ValueError(f"Invalid angle: {angle}")
     
         return actions
 
@@ -190,10 +159,10 @@ class Plane(object):
         x, y = self.state.pos
 
         in_buffer_cond = (
-            x <= self.xMin,                        # bound -x
-            x >= self.xMax,                        # bound +x
-            y <= self.yMin,                        # bound -y
-            y >= self.yMax                         # bound +y
+            x <= self.xMin,     # bound -x
+            x >= self.xMax,     # bound +x
+            y <= self.yMin,     # bound -y
+            y >= self.yMax      # bound +y
         )
 
         for i in range(4):

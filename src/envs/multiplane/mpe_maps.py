@@ -24,7 +24,7 @@ map_param_registry = {
 	"50vs50": {
 		"n_reds": 50,
 		"n_blues": 50,
-		"limit": 600,
+		"limit": 400,
 		"size_x": 1200,
 		"size_y": 1200,
 		"height": 4,
