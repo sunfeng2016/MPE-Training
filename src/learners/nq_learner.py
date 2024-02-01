@@ -72,7 +72,7 @@ class NQLearner:
 
         # Pick the Q-Values for the actions taken by each agent
         chosen_action_qvals = th.gather(mac_out[:, :-1], dim=3, index=actions).squeeze(3)  # Remove the last dim
-        chosen_action_qvals_ = chosen_action_qvals          # [batch_size, max_episode_len, agents_num]
+        # chosen_action_qvals_ = chosen_action_qvals          # [batch_size, max_episode_len, agents_num]
 
         # Calculate the Q-Values necessary for the target
         with th.no_grad():
@@ -132,12 +132,12 @@ class NQLearner:
             self.last_target_update_episode = episode_num
 
         if t_env - self.log_stats_t >= self.args.learner_log_interval:
-            self.logger.log_stat("loss_td", L_td.item(), t_env)
-            self.logger.log_stat("grad_norm", grad_norm, t_env)
+            self.logger.log_stat("algorithm/td_loss", L_td.item(), t_env)
+            self.logger.log_stat("algorithm/grad_norm", grad_norm, t_env)
             mask_elems = mask.sum().item()
-            self.logger.log_stat("td_error_abs", (masked_td_error.abs().sum().item()/mask_elems), t_env)
-            self.logger.log_stat("q_taken_mean", (chosen_action_qvals * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
-            self.logger.log_stat("target_mean", (targets * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
+            self.logger.log_stat("algorithm/td_error_abs", (masked_td_error.abs().sum().item()/mask_elems), t_env)
+            self.logger.log_stat("algorithm/q_taken_mean", (chosen_action_qvals * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
+            self.logger.log_stat("algorithm/target_mean", (targets * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
             self.log_stats_t = t_env
             
             # print estimated matrix

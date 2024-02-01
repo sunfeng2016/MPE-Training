@@ -13,6 +13,8 @@ class EpisodeRunner:
         self.batch_size = self.args.batch_size_run
         assert self.batch_size == 1
 
+        self.args.env_args['render'] = True if self.args.evaluate else False
+
         self.env = env_REGISTRY[self.args.env](**self.args.env_args)
         self.episode_limit = self.env.episode_limit
         self.t = 0
@@ -52,6 +54,8 @@ class EpisodeRunner:
         terminated = False
         episode_return = 0
         self.mac.init_hidden(batch_size=self.batch_size)
+        if getattr(self.args, 'task', False):
+            self.mac.init_embedding(batch_size=self.batch_size)
 
         start = time.time()
         while not terminated:
@@ -95,11 +99,12 @@ class EpisodeRunner:
         # Fix memory leak
         cpu_actions = actions.to("cpu").numpy()
         self.batch.update({"actions": cpu_actions}, ts=self.t)
-
-        if self.env.render:
-            end = time.time()
-            duration = end - start
-            time.sleep(1.2 * self.t - duration)
+        
+        end = time.time()
+        duration = end - start
+        
+        if self.env.render_or_not:
+            time.sleep(max(0, 1.2 * self.t - duration))
 
         cur_stats = self.test_stats if test_mode else self.train_stats
         cur_returns = self.test_returns if test_mode else self.train_returns
@@ -108,27 +113,42 @@ class EpisodeRunner:
         cur_stats["n_episodes"] = 1 + cur_stats.get("n_episodes", 0)
         cur_stats["ep_length"] = self.t + cur_stats.get("ep_length", 0)
 
+        env_stats = self.env.get_stats()
+
         if not test_mode:
             self.t_env += self.t
 
         cur_returns.append(episode_return)
 
         if test_mode and (len(self.test_returns) == self.args.test_nepisode):
-            self._log(cur_returns, cur_stats, log_prefix)
+            self._log(cur_returns, cur_stats, env_stats, log_prefix)
         elif self.t_env - self.log_train_stats_t >= self.args.runner_log_interval:
-            self._log(cur_returns, cur_stats, log_prefix)
+            self._log(cur_returns, cur_stats, env_stats, log_prefix)
             if hasattr(self.mac.action_selector, "epsilon"):
-                self.logger.log_stat("epsilon", self.mac.action_selector.epsilon, self.t_env)
+                self.logger.log_stat("algorithm/epsilon", self.mac.action_selector.epsilon, self.t_env)
             self.log_train_stats_t = self.t_env
 
         return self.batch
 
-    def _log(self, returns, stats, prefix):
-        self.logger.log_stat(prefix + "return_mean", np.mean(returns), self.t_env)
-        self.logger.log_stat(prefix + "return_std", np.std(returns), self.t_env)
+    def _log(self, returns, stats, env_stats, prefix):
+        # self.logger.log_stat(prefix + "return_mean", np.mean(returns), self.t_env)
+        # self.logger.log_stat(prefix + "return_std", np.std(returns), self.t_env)
+
+        self.logger.log_stat(f"returns/{prefix}return_mean", np.mean(returns), self.t_env)
+        self.logger.log_stat(f"returns/{prefix}return_std", np.std(returns), self.t_env)
         returns.clear()
 
         for k, v in stats.items():
             if k != "n_episodes":
-                self.logger.log_stat(prefix + k + "_mean" , v/stats["n_episodes"], self.t_env)
+                # self.logger.log_stat(prefix + k + "_mean" , v/stats["n_episodes"], self.t_env)
+                self.logger.log_stat(f'runner/{prefix}{k}_mean', v/stats["n_episodes"], self.t_env)
+            # self.logger.log_stat(f"runner/{prefix}{k}", v, self.t_env)
+                
+        
+        self.logger.log_stat(f"runner/{prefix}n_red_alive", env_stats["n_red_alive"], self.t_env)
+        self.logger.log_stat(f"runner/{prefix}n_blue_alive", env_stats["n_blue_alive"], self.t_env)
+        self.logger.log_stat(f"runner/{prefix}win_rate", env_stats["win_rate"], self.t_env)
+
+        env_stats.clear()
+
         stats.clear()

@@ -29,6 +29,7 @@ def run(_run, _config, _log):
 
     args = SN(**_config)
     args.device = "cuda" if args.use_cuda else "cpu"
+    
 
     # setup loggers
     logger = Logger(_log)
@@ -178,7 +179,7 @@ def run_sequential(args, logger):
         with th.no_grad():
             episode_batch = runner.run(test_mode=False)
             buffer.insert_episode_batch(episode_batch)
-
+            
         if buffer.can_sample(args.batch_size):
             next_episode = episode + args.batch_size_run
             if args.accumulated_episodes and next_episode % args.accumulated_episodes != 0:
