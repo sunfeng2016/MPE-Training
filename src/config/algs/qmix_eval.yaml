@@ -16,9 +16,9 @@ optimizer: 'adam'
 save_model: True
 save_model_interval: 200000
 
-# evaluate: True
-# checkpoint_path: "./results/models/save/qmix_env=8_adam_td_lambda__2024-01-22_14-26-39"
-# load_step: 4604286
+evaluate: True
+checkpoint_path: "./results/models/qmix_env=8_adam_td_lambda__2024-01-26_10-41-28"
+load_step: 9012293
 
 t_max: 10050000
 
