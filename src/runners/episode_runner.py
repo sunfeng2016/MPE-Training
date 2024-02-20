@@ -13,9 +13,10 @@ class EpisodeRunner:
         self.batch_size = self.args.batch_size_run
         assert self.batch_size == 1
 
-        self.args.env_args['render'] = True if self.args.evaluate else False
 
         self.env = env_REGISTRY[self.args.env](**self.args.env_args)
+        self.env.render_or_not = True if self.args.evaluate else False
+
         self.episode_limit = self.env.episode_limit
         self.t = 0
 
