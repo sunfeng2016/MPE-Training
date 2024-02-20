@@ -121,6 +121,8 @@ class EpsilonGreedyActionSelector():
         
 
     def select_action(self, agent_inputs, avail_actions, t_env, test_mode=False):
+        
+        assert th.all(th.any(avail_actions==1, -1)), f"{avail_actions} must have at least one action"
 
         # Assuming agent_inputs is a batch of Q-Values for each agent bav
         self.epsilon = self.schedule.eval(t_env)
