@@ -29,10 +29,10 @@ class NRNNAgent(nn.Module):
     def forward(self, inputs, hidden_state):
         b, a, e = inputs.size()
 
-        inputs = inputs.view(-1, e)
-        x = F.relu(self.fc1(inputs), inplace=True)
-        h_in = hidden_state.reshape(-1, self.args.rnn_hidden_dim)
-        hh = self.rnn(x, h_in)
+        inputs = inputs.view(-1, e)  # b x t x e -> (b x t) x e
+        x = F.relu(self.fc1(inputs), inplace=True)  # (b x t) x e -> (b x t) x h
+        h_in = hidden_state.reshape(-1, self.args.rnn_hidden_dim) # b x t x h -> (b x t) x h
+        hh = self.rnn(x, h_in) # (b x t) x h -> (b x t) x h
 
         if getattr(self.args, "use_layer_norm", False):
             q = self.fc2(self.layer_norm(hh))

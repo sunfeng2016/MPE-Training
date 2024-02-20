@@ -48,7 +48,7 @@ class MAICAgent(nn.Module):
         return self.fc1.weight.new(1, self.args.rnn_hidden_dim).zero_()
     
     def forward(self, inputs, hidden_state, bs, test_mode=False, **kwargs):
-        x = F.relu(self.fc1(inputs))                                # [bs * n_agents, hidden_dim]
+        x = F.relu(self.fc1(inputs), inplace=True)                  # [bs * n_agents, hidden_dim]
         h_in = hidden_state.reshape(-1, self.args.rnn_hidden_dim)   # [bs * n_agents, hidden_dim]
         h = self.rnn(x, h_in)                                       # [bs * n_agents, hidden_dim]
         q = self.fc2(h)                                             # [bs * n_agents, n_actions]
