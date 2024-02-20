@@ -486,8 +486,8 @@ class MultiPlaneEnv(MultiAgentEnv):
             red_plane = self.red_planes[red_index]
             blue_plane = self.blue_planes[blue_index]
 
-            if not (red_plane.alive and blue_plane.alive):
-                continue
+            # if not (red_plane.alive and blue_plane.alive):
+            #     continue
 
             # Set planes as not alive and collided
             red_plane.alive = False
@@ -495,19 +495,19 @@ class MultiPlaneEnv(MultiAgentEnv):
             red_plane.just_died = True
             blue_plane.just_died = True
 
-            self.n_red_alive -= 1
-            self.n_blue_alive -= 1
+            # self.n_red_alive -= 1
+            # self.n_blue_alive -= 1
 
             if red_plane.target is not None and red_plane.target.index == blue_plane.index:
                 red_plane.collided = True
 
-        # # Remove duplicates
-        # red_indices = np.unique(red_indices)
-        # blue_indices = np.unique(blue_indices)
+        # Remove duplicates
+        red_indices = np.unique(red_indices)
+        blue_indices = np.unique(blue_indices)
 
-        # # Update number of alive planes
-        # self.n_red_alive -= len(red_indices)
-        # self.n_blue_alive -= len(blue_indices)
+        # Update number of alive planes
+        self.n_red_alive -= len(red_indices)
+        self.n_blue_alive -= len(blue_indices)
     
     # -------------------------------------------------get observation---------------------------------------------------
     def get_obs_own_feats_size(self):
@@ -689,6 +689,7 @@ class MultiPlaneEnv(MultiAgentEnv):
         if agent.alive:
             avail_attack_actions = [1] * agent.observed_enemies_num + [0] * (self.n_actions_attack - agent.observed_enemies_num)
             avail_move_actions = agent.get_avail_move_actions()
+            assert sum(avail_move_actions) >= 1
             avail_actions = avail_attack_actions + avail_move_actions
             return avail_actions
         else:
@@ -853,6 +854,15 @@ class MultiPlaneEnv(MultiAgentEnv):
                 fontLineHeight=1500
             )
             # Set skybox style
+            self.visual_bridge.set_style(
+                'skybox6side',
+                posx='/wget/sky/right.jpg',
+                negx='/wget/sky/left.jpg',
+                posy='/wget/sky/up.jpg',
+                negy='/wget/sky/down.jpg',
+                posz='/wget/sky/front.jpg',
+                negz='/wget/sky/back.jpg'
+            )
             # self.visual_bridge.set_style(
             #     'skybox6side',
             #     posx='/wget/sky_textures/right_posx.jpg',
@@ -862,15 +872,15 @@ class MultiPlaneEnv(MultiAgentEnv):
             #     posz='/wget/sky_textures/front_posz.jpg',
             #     negz='/wget/sky_textures/back_negz.jpg'
             # )
-            self.visual_bridge.set_style(
-                'skybox6side',
-                posx='/wget/battleground_textures/right.jpg',
-                negx='/wget/battleground_textures/left.jpg',
-                posy='/wget/battleground_textures/up.jpg',
-                negy='/wget/battleground_textures/down.jpg',
-                posz='/wget/battleground_textures/front.jpg',
-                negz='/wget/battleground_textures/back.jpg'
-            )
+            # self.visual_bridge.set_style(
+            #     'skybox6side',
+            #     posx='/wget/battleground_textures/right.jpg',
+            #     negx='/wget/battleground_textures/left.jpg',
+            #     posy='/wget/battleground_textures/up.jpg',
+            #     negy='/wget/battleground_textures/down.jpg',
+            #     posz='/wget/battleground_textures/front.jpg',
+            #     negz='/wget/battleground_textures/back.jpg'
+            # )
             # self.visual_bridge.set_style(
             #     'skybox6side',
             #     posx='/wget/white_textures/px.jpg',

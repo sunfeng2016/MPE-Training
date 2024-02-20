@@ -104,17 +104,17 @@ class Plane(object):
 
         # Rotation angle of different fly actions
         self.rotation_mapping = {
-            i: 0 for i in range(self.max_observed_enemies)
+            i: 0 for i in range(self.n_actions_attack)
         }
 
         self.rotation_mapping.update({
-            self.max_observed_enemies: 0,                                           # forward
-            self.max_observed_enemies + 1: np.pi / (self.frame_per_step * 4),       # turn left pi/4
-            self.max_observed_enemies + 2: -np.pi / (self.frame_per_step * 4),      # turn right pi/4
-            self.max_observed_enemies + 3: np.pi / (self.frame_per_step * 2),       # turn left pi/2
-            self.max_observed_enemies + 4: -np.pi / (self.frame_per_step * 2),      # turn right pi/2
-            self.max_observed_enemies + 5: np.pi / self.frame_per_step,             # turn left pi
-            self.max_observed_enemies + 6: -np.pi / self.frame_per_step             # turn right pi
+            self.n_actions_attack: 0,                                           # forward
+            self.n_actions_attack + 1: np.pi / (self.frame_per_step * 4),       # turn left pi/4
+            self.n_actions_attack + 2: -np.pi / (self.frame_per_step * 4),      # turn right pi/4
+            self.n_actions_attack + 3: np.pi / (self.frame_per_step * 2),       # turn left pi/2
+            self.n_actions_attack + 4: -np.pi / (self.frame_per_step * 2),      # turn right pi/2
+            self.n_actions_attack + 5: np.pi / self.frame_per_step,             # turn left pi
+            self.n_actions_attack + 6: -np.pi / self.frame_per_step             # turn right pi
         })
     
         # get the bounds of the buffer field
