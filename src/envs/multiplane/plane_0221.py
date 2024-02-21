@@ -86,10 +86,6 @@ class Plane(object):
         self.just_died = False
         self.collided = False
         self.target = None
-        self.cur_target = None
-
-        # Reset trackers num
-        self.need_tracker_num = 0
         
         # Reset plane state, including position, direction and velocity
         self.state.pos = np.array([0.0, 0.0])
@@ -175,28 +171,6 @@ class Plane(object):
                 return self.get_avail_actions(angle)
         
         return [1] * self.n_actions_move
-    
-    def get_avail_attack_actions(self):
-        avail_actions = [0] * self.n_actions_attack
-        if not self.red:
-            return avail_actions
-
-        exist = False
-
-        for i, target in enumerate(self.observed_enemies):
-            if target is None:
-                break
-            if self.cur_target is target:
-                avail_actions[i] = 1
-                exist = True
-            elif target.need_tracker_num > 0:
-                avail_actions[i] = 1
-                target.need_tracker_num -= 1
-
-        if not exist and self.cur_target is not None:
-            self.cur_target.need_tracker_num += 1
-        
-        return avail_actions
 
     def fly(self, fly_action):
         # Backup the current state of the plane

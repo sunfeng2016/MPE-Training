@@ -44,7 +44,6 @@ class MultiPlaneEnv(MultiAgentEnv):
             cold_boot_step=10,
             max_observed_allies=5,
             max_observed_enemies=5,
-            max_tracker_num=3,
             render=False,
             move_amount=6.0,
             track_accleration=1.5,
@@ -115,9 +114,6 @@ class MultiPlaneEnv(MultiAgentEnv):
         # Set the max observed num
         self.max_observed_allies = max_observed_allies
         self.max_observed_enemies = max_observed_enemies
-
-        # Set the max tracker num
-        self.max_tracker_num = max_tracker_num
         
         # Set the observation parameters
         self.obs_last_action = obs_last_action
@@ -311,30 +307,6 @@ class MultiPlaneEnv(MultiAgentEnv):
             plane.backup_state()
 
     # -----------------------------------------------------step-------------------------------------------------------
-    def process_tracker(self, actions):
-        """
-        Process the tracking information.
-
-        Args:
-            actions (np.ndarray): List of actions.
-        """
-        for blue_plane in self.blue_planes:
-            if not blue_plane.alive:
-                continue
-            blue_plane.need_tracker_num = self.max_tracker_num
-
-        for i, red_plane in enumerate(self.red_planes):
-            if not red_plane.alive:
-                continue
-            action = actions[i]
-            red_plane.cur_target = None
-            if action < self.n_actions_attack:
-                target = red_plane.observed_enemies[action]
-                assert target is not None
-                target.need_tracker_num = max(0, target.need_tracker_num - 1)
-                red_plane.cur_target = target
-
-    
     def step(self, actions_red):
         """
         Perform a step in the game environment.
@@ -356,10 +328,7 @@ class MultiPlaneEnv(MultiAgentEnv):
 
         if self.debug:
             logging.debug("Actions {}".format(actions).center(60, "-"))
-        
-        # Initialize trackers num
-        self.process_tracker(actions)
-
+         
         # Perform actions for each frame per step
         for i in range(self.frame_per_step):
             self.meta_step(actions)
@@ -407,6 +376,9 @@ class MultiPlaneEnv(MultiAgentEnv):
 
         if terminated:
             self._episode_count += 1
+            # info['n_red_alive'] = self.n_red_alive
+            # info['n_blue_alive'] = self.n_blue_alive
+            # info['win_rate'] = self.battles_won / self.battles_game
         
         if self.reward_scale:
             reward /= self.max_reward / self.reward_scale_rate
@@ -641,7 +613,7 @@ class MultiPlaneEnv(MultiAgentEnv):
                     if ally is None:
                         break
 
-                    ally_feats[idx, 0] = 1  # visible
+                    ally_feats[idx, 0:1] = 1  # visible
                     ind = 1
 
                     if self.obs_id_embedding:
@@ -715,7 +687,7 @@ class MultiPlaneEnv(MultiAgentEnv):
         Return a list indicating the availability of actions for the given agent.
         """
         if agent.alive:
-            avail_attack_actions = agent.get_avail_attack_actions()
+            avail_attack_actions = [1] * agent.observed_enemies_num + [0] * (self.n_actions_attack - agent.observed_enemies_num)
             avail_move_actions = agent.get_avail_move_actions()
             assert sum(avail_move_actions) >= 1
             avail_actions = avail_attack_actions + avail_move_actions
