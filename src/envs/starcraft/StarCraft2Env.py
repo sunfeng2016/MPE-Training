@@ -391,9 +391,19 @@ class StarCraft2Env(MultiAgentEnv):
         self.force_restarts += 1
 
     def step(self, actions):
-        """A single environment step. Returns reward, terminated, info."""
+        """
+        A single environment step. Returns reward, terminated, info.
+
+        Args:
+            actions (list): List of actions for each agent.
+
+        Returns:
+            tuple: reward, terminated, info.
+        """
+        # Convert actions to integers
         actions_int = [int(a) for a in actions]
 
+        # Update the last action taken by each agent
         self.last_action = np.eye(self.n_actions)[np.array(actions_int)]
 
         # Collect individual actions
@@ -401,13 +411,17 @@ class StarCraft2Env(MultiAgentEnv):
         if self.debug:
             logging.debug("Actions".center(60, "-"))
 
+        # Iterate over each agent's action
         for a_id, action in enumerate(actions_int):
+            # If heuristic AI is not used, construct the action
             if not self.heuristic_ai:
                 sc_action = self.get_agent_action(a_id, action)
             else:
+                # If heuristic AI is used, construct the action and update the action number
                 sc_action, action_num = self.get_agent_action_heuristic(
                     a_id, action)
                 actions[a_id] = action_num
+            # If the action is not None, add it to the list of SC2 actions
             if sc_action:
                 sc_actions.append(sc_action)
 
@@ -415,18 +429,19 @@ class StarCraft2Env(MultiAgentEnv):
         req_actions = sc_pb.RequestAction(actions=sc_actions)
         try:
             self._controller.actions(req_actions)
-            # Make step in SC2, i.e. apply actions
+            # Apply the actions in SC2
             self._controller.step(self._step_mul)
-            # Observe here so that we know if the episode is over.
+            # Observe the state of the environment
             self._obs = self._controller.observe()
         except (protocol.ProtocolError, protocol.ConnectionError):
+            # If an error occurs, restart the environment
             self.full_restart()
             return 0, True, {}
 
         self._total_steps += 1
         self._episode_steps += 1
 
-        # Update units
+        # Update the state of the units
         game_end_code = self.update_units()
 
         terminated = False

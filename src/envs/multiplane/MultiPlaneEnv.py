@@ -969,6 +969,7 @@ class MultiPlaneEnv(MultiAgentEnv):
         label = '红方剩余飞机: {} 蓝方剩余飞机: {}\n'.format(self.n_red_alive, self.n_blue_alive) + \
                 '当前战况：{}\n'.format(who_is_winning) + \
                 '当前时间步: {}\n'.format(self._episode_steps + 1) + \
+                '胜利次数: {}\n'.format(self.battles_won) + \
                 '当前回合: {}\n'.format(self._episode_count + 1)
                 
         self.visual_bridge.v3d_object(
@@ -1188,4 +1189,7 @@ class MultiPlaneEnv(MultiAgentEnv):
         return position_embeddings
 
     def close(self):
-        pass
+        logging.debug("Closing environment ....")
+        logging.debug("Close env done ....")
+        logging.debug("Episode count: {} ".format(self.episode_count))
+        logging.debug("Win rate: {} ".format(self.battles_won / self.battles_game))

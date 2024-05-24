@@ -31,6 +31,17 @@ map_param_registry = {
 		"init_dis": 1000,
 		"red_y_range": 600,
 		"blue_y_range": 600
+	},
+	"100vs100": {
+		"n_reds": 100,
+		"n_blues": 100,
+		"limit": 600,
+		"size_x": 1500,
+		"size_y": 1500,
+		"height": 4,
+		"init_dis": 1000,
+		"red_y_range": 1000,
+		"blue_y_range": 1000
 	}
 }
 
