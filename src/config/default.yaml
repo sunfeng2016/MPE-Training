@@ -42,12 +42,6 @@ rnn_hidden_dim: 64 # Size of hidden state for default rnn agent
 obs_agent_id: True # Include the agent's one_hot id in the observation
 obs_last_action: True # Include the agent's last action (one_hot) in the observation
 
-task_num: 10  # Number of tasks
-task_emb_dim: 16  # Dimension of task embedding
-mlp_hidden_dim1: 128 # Size of hidden layer for task assignment network
-mlp_hidden_dim2: 64 # Size of hiddent state for task assignment network
-task_interval: 5
-
 # --- Experiment running params ---
 repeat_id: 1
 label: "default_label"

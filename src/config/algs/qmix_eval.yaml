@@ -17,7 +17,7 @@ save_model: True
 save_model_interval: 200000
 
 evaluate: True
-checkpoint_path: "./results/models/qmix_env=8_adam_td_lambda__2024-01-26_10-41-28"
+checkpoint_path: "./results/models/save/qmix_env=8_adam_td_lambda__2024-01-30_20-54-28"
 load_step: 9012293
 
 t_max: 10050000

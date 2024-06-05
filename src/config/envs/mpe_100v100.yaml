@@ -1,7 +1,7 @@
 env: mpe
 
 env_args:
-  map_name: '50vs50'
+  map_name: '100vs100'
   id_embedding_size: 2
   time_per_step: 6
   frame_per_step: 6

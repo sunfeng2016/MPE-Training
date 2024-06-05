@@ -15,7 +15,6 @@ optimizer: 'adam'
 
 save_model: True
 save_model_interval: 200000
-# save_model_interval: 20000
 
 # evaluate: True
 # checkpoint_path: "./results/models/save/qmix_env=8_adam_td_lambda__2024-01-19_18-49-21"
@@ -53,5 +52,15 @@ use_per: False
 per_alpha: 0.6
 per_beta: 0.4
 return_priority: False
+
+task_num: 5  # Number of tasks
+task_emb_dim: 8  # Dimension of task embedding
+mlp_hidden_dim: 64 # Size of hiddent state for task assignment network
+task_interval: 5
+
+seed: 999999
+
+obs_agent_id: False # Include the agent's one_hot id in the observation
+obs_last_action: True # Include the agent's last action (one_hot) in the observation
 
 name: "qmix_task"

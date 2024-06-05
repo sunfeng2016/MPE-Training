@@ -10,15 +10,16 @@ epsilon_anneal_time: 100000 # 500000 for 6h_vs_8z
 # batch_size_run: 1
 # batch_size_run: 8 # batch_size_run=4, buffer_size = 2500, batch_size=64  for 3s5z_vs_3s6z
 buffer_size: 5000 
+# buffer_size: 1 
 batch_size: 128
 optimizer: 'adam'
 
+# evaluate: True
+# checkpoint_path: "./results/models/save/qmix__2024-02-22_10-01-23"
+# load_step: 9606126
+
 save_model: True
 save_model_interval: 200000
-
-# evaluate: True
-# checkpoint_path: "./results/models/save/qmix_env=8_adam_td_lambda__2024-01-22_14-26-39"
-# load_step: 4604286
 
 t_max: 10050000
 
@@ -52,4 +53,9 @@ per_alpha: 0.6
 per_beta: 0.4
 return_priority: False
 
-name: "qmix_env=8_adam_td_lambda"
+obs_agent_id: False # Include the agent's one_hot id in the observation
+obs_last_action: True # Include the agent's last action (one_hot) in the observation
+
+seed: 999999
+
+name: "qmix"
