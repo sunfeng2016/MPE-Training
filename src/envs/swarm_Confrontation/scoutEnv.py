@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # @Author: Feng Sun
-# @Date: 2024-05-20
-# @Description: Implementation of base Environment
+# @Date: 2024-05-17
+# @Description: Implementation of Agent Class
 
 import os
 import pygame
@@ -9,13 +9,12 @@ import imageio
 import numpy as np
 
 from scipy.spatial import distance
-from smac.env.multiagentenv import MultiAgentEnv
 
 os.environ["SDL_VIDEODRIVER"] = "dummy"
 # os.environ["SDL_AUDIODRIVER"] = "pulseaudio"
 # os.environ["DISPLAY"] = ":11"
 
-class BaseEnv(MultiAgentEnv):
+class World(object):
     def __init__(self):
         
         # Set the parameters of the map
@@ -83,26 +82,22 @@ class BaseEnv(MultiAgentEnv):
         self.red_state_size = 4      # x, y, v, heading
         self.blue_state_size = 4     # x, y, v, heading
 
-        # out of bound
-        self.max_out_of_bounds_time = 10
-
         # action space
         self.acc_action_num = 5
         self.heading_action_num = 5
-        self.attack_action_num = 4 
+        self.attack_action_num = 3
 
         self.acc_action_max = 5.0
         self.heading_action_max = 1.0
 
         self.acc_actions = np.linspace(-self.acc_action_max, self.acc_action_max, self.acc_action_num)
         self.heading_actions = np.linspace(-self.heading_action_max, self.heading_action_max, self.heading_action_num)
-        self.attack_actions = np.arange(0, self.attack_action_num) # ["no-op", "explode", "collide", "soft_kill"]
+        self.attack_actions = np.arange(0, self.attack_action_num) # ["explode", "collide", "soft_kill"]
 
         # Screen
         self.screen = None
-        self.scale_factor = 0.5
-        self.screen_width = self.size_x * self.scale_factor
-        self.screen_height = self.size_y * self.scale_factor
+        self.screen_width = 4000
+        self.screen_height = 2500
         self.red_plane_img = None
         self.blue_plane_img = None
         self.red_img_cache = {}
@@ -123,25 +118,27 @@ class BaseEnv(MultiAgentEnv):
         # Reset positions, directions and velocities
         self.positions, self.directions, self.velocities = self.init_positions()
 
-        # Reset alive array
-        self.alives = np.ones(self.n_agents, dtype=bool)
+        self.red_positions = None
+        self.red_directions = None
+        self.red_velocities = None
 
-        self.split_state()
+        self.blue_positions = None
+        self.blue_directions = None
+        self.blue_velocities = None
 
         # Reset the transform positions matrix
         self.transformed_positions = np.zeros((self.n_agents, 2), dtype=int)
 
-        # Reset out-of-bounds time
-        self.out_of_bounds_time = np.zeros(self.n_agents)
+        # Reset alive array
+        self.alives = np.ones(self.n_agents, dtype=bool)
+        self.red_alives = None
+        self.blue_alives = None
 
         # Reset the distances matrix and angle matrix
         self.distances_matrix_red2blue = None
-        self.distances_matrix_blue2red = None
         self.distances_matrix_red2red = None
-
         self.directions_matrix_red2blue = None
         self.directions_matrix_blue2red = None
-
         self.angles_diff_matrix_red2blue = None
         self.angles_diff_matrix_blue2red = None
 
@@ -155,29 +152,14 @@ class BaseEnv(MultiAgentEnv):
     def init_positions(self):
         # Random positions and directions
         positions = (np.random.rand(self.n_agents, 2) - 0.5) * np.array([self.size_x, self.size_y])
-        directions = (np.random.rand(self.n_agents) - 0.5) * 2 * np.pi
-        velocities = np.hstack([np.ones(self.n_reds) * self.red_max_vel, np.ones(self.n_blues) * self.blue_max_vel])
+        # directions = (np.random.rand(self.n_agents) - 0.5) * 2 * np.pi
+        directions = np.zeros(self.n_agents)
+        directions[self.n_reds:] = np.pi
+        velocities = np.ones(self.n_agents) * 15.0
+        velocities[:self.n_reds] += 5.0
 
         return positions, directions, velocities
     
-    def check_boundaries(self):
-        # check if agents are out of boundaries
-        half_size_x = self.size_x / 2
-        half_size_y = self.size_y / 2
-
-        out_of_bounds_x = (self.positions[:, 0] < -half_size_x) | (self.positions[:, 0] > half_size_x)
-        out_of_bounds_y = (self.positions[:, 1] < -half_size_y) | (self.positions[:, 1] > half_size_y)
-        
-        out_of_bounds = out_of_bounds_x | out_of_bounds_y
-        
-        # Update out-of-bounds time
-        self.out_of_bounds_time[out_of_bounds] += 1
-        self.out_of_bounds_time[~out_of_bounds] = 0
-
-        # Check for agents that are out of bounds for 10 time steps
-        self.alives[self.out_of_bounds_time >= self.max_out_of_bounds_time] = False
-
-
     def explode(self, i):
         if i < self.n_reds:
             in_radius_enemies_i = self.distances_matrix_red2blue[i, :] < self.explode_radius
@@ -220,8 +202,46 @@ class BaseEnv(MultiAgentEnv):
 
     def soft_kill(self, i):
         pass
-    
-    def split_state(self):
+
+
+    def step(self, actions):
+
+        at = self.acc_actions[actions[:, 0]]
+        pt = self.heading_actions[actions[:, 1]]
+        # pt = np.zeros(self.n_agents)
+        attack_t = actions[:, 2]
+
+        for i in range(self.n_agents):
+            if not self.alives[i]:
+                continue
+            if attack_t[i] == 0:
+                # self.explode(i)     # explode
+                continue
+            elif attack_t[i] == 1:  # collide
+                flag = self.collide(i)
+                if not flag:
+                    pt[i] = 0
+            elif attack_t[i] == 2:
+                self.soft_kill(i)
+            else:
+                raise ValueError
+
+        # self.red_directions += pt * self.max_angular_vel
+        # self.red_velocities += at * self.dt_time
+        # self.red_positions += np.column_stack((self.red_velocities * np.cos(self.red_directions), 
+        #                                        self.red_velocities * np.sin(self.red_directions))) * self.dt_time
+ 
+        # self.red_positions += self.red_velocities * self.dt_time
+
+        self.directions += pt * self.max_angular_vel
+        self.velocities += at * self.dt_time
+        self.velocities[:self.n_reds] = np.clip(self.velocities[:self.n_reds], self.red_min_vel, self.red_max_vel)
+        self.velocities[self.n_reds:] = np.clip(self.velocities[self.n_reds:], self.blue_min_vel, self.blue_max_vel)
+        self.positions += np.column_stack((self.velocities * np.cos(self.directions), 
+                                           self.velocities * np.sin(self.directions))) * self.dt_time
+            
+
+    def update_matrices(self):
         self.red_positions = self.positions[:self.n_reds, :]
         self.red_directions = self.directions[:self.n_reds]
         self.red_velocities = self.velocities[:self.n_reds]
@@ -232,49 +252,6 @@ class BaseEnv(MultiAgentEnv):
         self.blue_velocities = self.velocities[self.n_reds:]
         self.blue_alives = self.alives[self.n_reds:]
 
-    def step(self, actions):
-        # Get actions
-        at = self.acc_actions[actions[:, 0]]
-        pt = self.heading_actions[actions[:, 1]]
-        attack_t = actions[:, 2]
-
-        # Perform attack actions
-        for i in range(self.n_agents):
-            if not self.alives[i]:
-                continue
-            
-            if attack_t[i] == 0:    # no attack
-                continue
-            elif attack_t[i] == 1:
-                # self.explode(i)   # explode
-                continue
-            elif attack_t[i] == 2:  # collide
-                flag = self.collide(i)
-                if not flag:
-                    pt[i] = 0
-            elif attack_t[i] == 3: # soft kill
-                self.soft_kill(i)
-            else:
-                raise ValueError
-
-        # Perform move actions
-        self.directions += pt * self.max_angular_vel
-        self.directions = (self.directions + np.pi) % (2 * np.pi) - np.pi
-        self.velocities += at * self.dt_time
-        self.velocities[:self.n_reds] = np.clip(self.velocities[:self.n_reds], self.red_min_vel, self.red_max_vel)
-        self.velocities[self.n_reds:] = np.clip(self.velocities[self.n_reds:], self.blue_min_vel, self.blue_max_vel)
-        self.positions += np.column_stack((self.velocities * np.cos(self.directions), 
-                                           self.velocities * np.sin(self.directions))) * self.dt_time
-        
-        
-        self.split_state()
-        self.check_boundaries()
-
-        # Update step counter
-        self._total_steps += 1
-        self._episode_steps += 1
-            
-    def update_matrices(self):
         # Calculate direction vectors from red agents to blue agents
         delta_red2blue = self.blue_positions[np.newaxis, :, :] - self.red_positions[:, np.newaxis, :]   # nred x nblue x 2
 
@@ -308,6 +285,9 @@ class BaseEnv(MultiAgentEnv):
 
         # Transpose the distances matrix for red to blue to get blue to red
         distances_blue2red = distances_red2blue.T
+
+        # Calculate distances from blue agents to red agents
+        distances_blue2red = distance.cdist(self.blue_positions, self.red_positions, 'euclidean')
 
         # Update the directions and distances matrices
         self.distances_matrix_blue2red = np.where(valid_mask.T, distances_blue2red, np.inf)
@@ -500,7 +480,7 @@ class BaseEnv(MultiAgentEnv):
             pygame.quit()
             self.screen = None
 
-    def get_rotated_image(self, image, angle, cache, i):
+    def get_rotated_image(self, image, angle, cache):
         angle = round(angle)
         if angle not in cache:
             rotated_img = pygame.transform.rotate(image, -angle)
@@ -508,10 +488,10 @@ class BaseEnv(MultiAgentEnv):
         
         return cache[angle]
     
-    def render_circle(self, center, radius, color=(255, 0, 0), width=2):
+    def render_circle(self, center, radius, color):
         center_screen = self.transform_position(center)
         radius_screen = int(radius / self.size_x * self.screen_width)
-        pygame.draw.circle(self.screen, color, center_screen, radius_screen, width=width)
+        pygame.draw.circle(self.screen, color, center_screen, radius_screen, 2)
 
     def render(self, frame_num=0, save_frames=False):
 
@@ -522,7 +502,7 @@ class BaseEnv(MultiAgentEnv):
             blue_plane_img = pygame.image.load('./png/blue_plane_s.png').convert_alpha()
 
             # 缩放飞机贴图
-            scale_factor = 0.2  # 调整缩放比例
+            scale_factor = 0.25  # 调整缩放比例
             self.red_plane_img = pygame.transform.scale(red_plane_img, (int(red_plane_img.get_width() * scale_factor), 
                                                                         int(red_plane_img.get_height() * scale_factor)))
             self.blue_plane_img = pygame.transform.scale(blue_plane_img, (int(blue_plane_img.get_width() * scale_factor), 
@@ -541,7 +521,7 @@ class BaseEnv(MultiAgentEnv):
                 cache = self.red_img_cache if i < self.n_reds else self.blue_img_cache
 
                 # rotated_img = pygame.transform.rotate(image, -self.angles[i])
-                rotated_img = self.get_rotated_image(image, self.angles[i], cache, i)
+                rotated_img = self.get_rotated_image(image, self.angles[i], cache)
                 new_rect = rotated_img.get_rect(center=self.transformed_positions[i])
                 self.screen.blit(rotated_img, new_rect)
 
@@ -564,7 +544,7 @@ def create_gif(frame_folder, output_path,  fps=10):
             
 if __name__ == "__main__":
 
-    world = BaseEnv()
+    world = World()
 
     import time
     world.reset()
