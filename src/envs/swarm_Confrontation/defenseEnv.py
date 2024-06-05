@@ -179,46 +179,16 @@ class DefenseEnv(BaseEnv):
         target_positions[is_in_threat] = nearest_target[is_in_threat]
 
         return target_positions
-        
     
     def around_threat_zone(self, will_in_threat, target_positions):
-        # 将蓝方智能体的位置扩展为 (n, 1, 2)形状
-        blue_positions_expanded = self.blue_positions[:, np.newaxis, :]
+        target_angles = np.random.uniform(self.right_sector_theta2, self.left_sector_theta1, size=self.n_blues)
+        positions_y = self.blue_positions[:, 1]
+        target_angles = np.where(positions_y > 0, target_angles, -target_angles)
 
-        # 将边界点位置扩展为 (1, 4, 2)形状
-        boundary_points = np.array([
-            self.left_sector_pos1, 
-            self.left_sector_pos2,
-            self.right_sector_pos1,
-            self.right_sector_pos2
-        ])
-        boundary_points_expanded = boundary_points[np.newaxis, :, :]
-
-        # 计算每个智能体到边界点的距离
-        dists = np.linalg.norm(blue_positions_expanded - boundary_points_expanded, axis=2)
-
-        # 找到每个智能体最近的边界点的索引
-        nearest_pos_id = np.argmin(dists, axis=1)
-
-        # 生成一个随机角度
-        random_range = np.array([
-            [self.right_sector_theta2, self.left_sector_theta1],
-            [self.left_sector_theta2, self.right_sector_theta1],
-            [self.right_sector_theta2, self.left_sector_theta1],
-            [self.left_sector_theta2, self.right_sector_theta1],
-        ])
-
-        angle_offsets = np.random.uniform(random_range[nearest_pos_id, 0], random_range[nearest_pos_id, 1])
-        # angle_offsets = np.random.uniform(0, np.pi * 2, size=self.n_blues)
-
-        # 计算新的目标位置
-        dx = np.cos(angle_offsets)
-        dy = np.sin(angle_offsets)
-
-        # 偏移量按边界半径（1250）计算
+        # 计算目标位置
+        dx = np.cos(target_angles)
+        dy = np.sin(target_angles)
         offsets = np.stack([dx, dy], axis=1) * self.red_base_radius
-
-        # 计算新目标位置
         new_targets = self.red_base_center + offsets
 
         # 更新威胁区域内智能体的目标位置
