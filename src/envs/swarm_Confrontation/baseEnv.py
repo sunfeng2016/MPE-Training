@@ -117,8 +117,7 @@ class BaseEnv(MultiAgentEnv):
         self._episode_steps = 0
 
         # Reset num of alive agents
-        self.n_red_alive = self.n_reds
-        self.n_blue_alive = self.n_blues
+        self.n_agents = self.n_reds + self.n_blues
 
         # Reset positions, directions and velocities
         self.positions, self.directions, self.velocities = self.init_positions()
@@ -303,7 +302,7 @@ class BaseEnv(MultiAgentEnv):
         directions_angles_blue2red = np.arctan2(delta_blue2red[:, :, 1], delta_blue2red[:, :, 0])       # nblue x nred
         
         # Calculate angles between the red and blue planes
-        angles_diff_matrix_blue2red = directions_angles_blue2red - self.blue_directions[np.newaxis, :]  # nblue x nred
+        angles_diff_matrix_blue2red = directions_angles_blue2red - self.blue_directions[:, np.newaxis]  # nblue x nred
         angles_diff_matrix_blue2red = (angles_diff_matrix_blue2red + np.pi) % (2 * np.pi) - np.pi
 
         # Transpose the distances matrix for red to blue to get blue to red
@@ -452,7 +451,8 @@ class BaseEnv(MultiAgentEnv):
     def scripted_policy(self):
         acc_action = np.random.randint(0, self.acc_action_num, size=self.n_agents)
         heading_action = np.random.randint(0, self.heading_action_num, size=self.n_agents)
-        attack_action = np.random.randint(0, self.attack_action_num, size=self.n_agents)
+        # attack_action = np.random.randint(0, self.attack_action_num, size=self.n_agents)
+        attack_action = np.random.choice(np.arange(self.attack_action_num), size=self.n_agents, p=np.array([0.9, 0.05, 0.05, 0]))
 
         actions = np.column_stack((acc_action, heading_action, attack_action))
 
@@ -462,7 +462,8 @@ class BaseEnv(MultiAgentEnv):
     def scripted_policy_blue(self):
         acc_action = np.random.randint(0, self.acc_action_num, size=self.n_blues)
         heading_action = np.random.randint(0, self.heading_action_num, size=self.n_blues)
-        attack_action = np.random.randint(0, self.attack_action_num, size=self.n_blues)
+        # attack_action = np.random.randint(0, self.attack_action_num, size=self.n_blues)
+        attack_action = np.random.choice(np.arange(self.attack_action_num), size=self.n_blues, p=np.array([0.9, 0.05, 0.05, 0]))
 
         actions = np.column_stack((acc_action, heading_action, attack_action))
 
@@ -471,7 +472,8 @@ class BaseEnv(MultiAgentEnv):
     def scripted_policy_red(self):
         acc_action = np.random.randint(0, self.acc_action_num, size=self.n_reds)
         heading_action = np.random.randint(0, self.heading_action_num, size=self.n_reds)
-        attack_action = np.random.randint(0, self.attack_action_num, size=self.n_reds)
+        # attack_action = np.random.randint(0, self.attack_action_num, size=self.n_reds)
+        attack_action = np.random.choice(np.arange(self.attack_action_num), size=self.n_reds, p=np.array([0.9, 0.02, 0.08, 0]))
 
         actions = np.column_stack((acc_action, heading_action, attack_action))
 

@@ -76,10 +76,55 @@ class DefenseEnv(BaseEnv):
 
         self.explode_radius = 100
 
+        self.n_reds = 50
+        self.n_blues = 100
+
     def reset(self):
         super().reset()
 
         self.in_threat_zone_times = np.zeros(self.n_blues)
+
+    def red_explode(self, explode_mask):
+        # 红方智能体自爆范围内的蓝方智能体
+        blue_in_explode_zone = self.distances_matrix_red2blue < self.explode_radius
+
+        # 触发自爆的红方智能体将被标记为死亡
+        self.red_alives[explode_mask] = False
+
+        # 将自爆范围内的蓝方智能体标记为死亡
+        blue_explode_mask = np.any(blue_in_explode_zone[explode_mask], axis=0)
+        self.blue_alives[blue_explode_mask] = False
+
+
+    def red_collide(self, collide_mask):
+        """
+        红方智能体与其目标的碰撞
+        self.red_targets 中存放了其每个智能体的taget 的id, 如果当前智能体不存在target，则id为-1
+        """
+        # 更新 collide_mask，排除没有 target 的智能体
+        valid_collide_mask = collide_mask & (self.red_targets != -1) & self.red_alives
+
+        # 获取有效的 target_id
+        target_ids = self.red_targets[valid_collide_mask]
+
+        # 更新红方智能体和目标蓝方智能体的存活状态
+        self.red_alives[valid_collide_mask] = False
+        self.blue_alives[target_ids] = False
+
+        # 更新红方智能体的方向
+        self.red_directions[valid_collide_mask] = self.directions_matrix_red2blue[valid_collide_mask, target_ids] 
+
+        # collide_mask &= (self.red_targets != -1)
+
+        # for i, collide in enumerate(collide_mask):
+        #     if collide and self.red_alives[i]:
+        #         target_id = self.red_targets[i]
+        #         self.red_alives[i] = False
+        #         self.blue_alives[target_id] = False
+        #         self.red_directions[i] = self.directions_matrix_red2blue[i, target_id]
+
+      
+        
 
     def step(self, actions):
         # Get red actions
@@ -87,28 +132,16 @@ class DefenseEnv(BaseEnv):
         pt = self.heading_actions[actions[:, 1]]
         attack_t = actions[:, 2]
 
-        # pt *= 0
+        explode_mask = (attack_t == 1)
+        collide_mask = (attack_t == 2)
+        soft_kill_mask = (attack_t == 3)
 
-        # Perform attack actions
-        # for i in range(self.n_reds):
-        #     if not self.red_alives[i]:
-        #         continue
-
-        #     if attack_t[i] == 0:    # no attack
-        #         continue
-        #     elif attack_t[i] == 1:
-        #         continue
-        #         self.explode(i)   # explode
-        #     elif attack_t[i] == 2:  # collide
-        #         flag = self.collide(i)
-        #         if not flag:
-        #             pt[i] = 0
-        #     elif attack_t[i] == 3: # soft kill
-        #         self.soft_kill(i)
-        #     else:
-        #         raise ValueError
+        # Perfor attack actions
+        self.red_explode(explode_mask)
+        self.red_collide(collide_mask)
             
         # Perform move actions
+        pt[collide_mask] = 0
         self.red_directions += pt * self.max_angular_vel
         self.red_directions = (self.red_directions + np.pi) % (2 * np.pi) - np.pi
         self.red_velocities += at * self.dt_time
@@ -132,66 +165,102 @@ class DefenseEnv(BaseEnv):
         self.alives = np.hstack([self.red_alives, self.blue_alives])
 
     def flee_explode_zone(self, target_positions):
+        """
+        判断蓝方智能体是否在距离最近的红方智能体的自爆范围内，
+        如果该红方智能体的自爆范围内还有其它蓝方智能体，
+        那么该蓝方智能体需要逃离该红方智能体的自爆范围。
+        """    
+        # 计算红方智能体与蓝方智能体之间的距离
         distances_red2blue = distance.cdist(self.red_positions, self.blue_positions)
+
+        # 创建有效性掩码，只考虑存活的红方和蓝方智能体之间的距离
         valid_mask = self.red_alives[:, np.newaxis] & self.blue_alives[np.newaxis, :]
+
+        # 将无效的距离设置为无限大
         distances_red2blue = np.where(valid_mask, distances_red2blue, np.inf)
+        
+        # 转置距离矩阵，以便计算每个蓝方智能体到最近的红方智能体的距离
         distances_blue2red = distances_red2blue.T
 
+        # 找到每个蓝方智能体距离最近的红方智能体的索引
         nearest_id = np.argmin(distances_blue2red, axis=1)
 
+        # 判断蓝方智能体是否在最近的红方智能体的自爆范围内
         is_in_explode = distances_red2blue[nearest_id, :] < self.explode_radius
 
-        flee_or_not = np.sum(is_in_explode, axis=1) > 2
+        # 判断距离最近的红方智能体的自爆范围内是否有超过2个蓝方智能体
+        flee_or_not = np.sum(is_in_explode, axis=1) > 1
 
+        # 计算逃离方向
         flee_directions = self.blue_positions - self.red_positions[nearest_id, :]
         flee_angles = np.arctan2(flee_directions[:, 1], flee_directions[:, 0])      
 
+        # 计算逃离位置偏移
         dx = np.cos(flee_angles)
         dy = np.sin(flee_angles)
-
         offsets = np.stack([dx, dy], axis=1) * self.explode_radius
 
+        # 计算新的目标位置
         targets = self.red_positions[nearest_id, :] + offsets
 
+        # 更新需要逃离的蓝方智能体的目标位置
         target_positions[flee_or_not] = targets[flee_or_not]
 
         return target_positions
 
     def flee_threat_zone(self, is_in_threat, target_positions):
-        # 计算智能体当前位置到线段起点的向量
-        pos_vec = self.blue_positions[:, np.newaxis, :] - self.red_lines[:, 0, :][np.newaxis, :, :]
-        # 将点向量按照线段长度缩放
-        pos_unitvec = pos_vec / self.red_lines_len[:, np.newaxis]
-        # 计算投影长度t
-        t = np.einsum('nij,nij->ni', self.red_lines_unitvec[np.newaxis, :, :], pos_unitvec)
-        # 限制 t 的范围在[0,1]之间
-        t = np.clip(t, 0.0, 1.0)
-        # 计算线段上距离智能体最近的坐标点
-        nearest = self.red_lines[:, 0, :][np.newaxis, :, :] + t[:, :, np.newaxis] * self.red_lines_vec[np.newaxis, :, :]
+        """
+        针对当前已经在警戒区的智能体，选择最近的边界上的最近点作为目标点，从而逃离警戒区
+        """
 
-        # 计算距离
+        # 计算智能体当前位置到线段起点的向量
+        pos_vec = self.blue_positions[:, np.newaxis, :] - self.red_lines[:, 0, :]
+        
+        # 计算点向量的单位向量
+        pos_unitvec = pos_vec / self.red_lines_len[:, np.newaxis]
+
+        # 计算每个智能体位置在每条线段上的投影长度 t
+        t = np.einsum('nij,ij->ni', pos_unitvec, self.red_lines_unitvec)
+
+        # 将 t 限制在 [0, 1] 范围内，确保投影点在线段上
+        t = np.clip(t, 0.0, 1.0)
+
+        # 计算线段上距离智能体最近的点的坐标
+        nearest =  self.red_lines[:, 0, :] + t[:, :, np.newaxis] * self.red_lines_vec[np.newaxis, :, :]
+
+        # 计算智能体当前位置到最近点的距离
         distance = np.linalg.norm(self.blue_positions[:, np.newaxis, :] - nearest, axis=2)
 
+        # 找到每个智能体距离最近的线段的索引
         nearest_id = np.argmin(distance, axis=1)
 
-        nearest_target = nearest[range(self.n_blues), nearest_id]
+        # 获取每个智能体最近的目标点
+        nearest_target = nearest[np.arange(self.n_blues), nearest_id]
 
+        # 更新在警戒区内的智能体的目标位置
         target_positions[is_in_threat] = nearest_target[is_in_threat]
 
         return target_positions
     
     def around_threat_zone(self, will_in_threat, target_positions):
+        """
+        给即将进入警戒区的智能体分配一个新的目标点，使他们绕开警戒区
+        """
+        # 生成一个随机角度：默认从北侧突防通道口进入
         target_angles = np.random.uniform(self.right_sector_theta2, self.left_sector_theta1, size=self.n_blues)
         positions_y = self.blue_positions[:, 1]
+        # 如果智能体在南侧，反转角度，从南侧突防通道口进入
         target_angles = np.where(positions_y > 0, target_angles, -target_angles)
 
-        # 计算目标位置
+        # 计算目标位置的偏移量
         dx = np.cos(target_angles)
         dy = np.sin(target_angles)
         offsets = np.stack([dx, dy], axis=1) * self.red_base_radius
+
+        # 计算新的目标位置
         new_targets = self.red_base_center + offsets
 
-        # 更新威胁区域内智能体的目标位置
+        # 更新威胁区域外智能体的目标位置
         target_positions[will_in_threat] = new_targets[will_in_threat]
 
         return target_positions
@@ -243,33 +312,74 @@ class DefenseEnv(BaseEnv):
 
         return in_threat_zone, will_in_threat_zone
 
+    def blue_self_destruction(self):
+        """
+        判断蓝方智能体是否需要自爆:
+        规则：
+        1. 如果蓝方存活智能体的数量超过80%且自爆范围内的红方智能体数量超过2,则自爆。
+        2. 如果蓝方存活智能体的数量在60%和80%之间且自爆范围内红方智能体的数量超过3,则自爆。
+        3. 其它情况下不攻击。
+        """
+        # 计算蓝方存活智能体的数量
+        alive_count = np.sum(self.blue_alives)
+        alive_percentage = alive_count / self.n_blues
+
+        # 计算每个蓝方智能体与每个红方智能体的距离
+        distances_blue2red = distance.cdist(self.blue_positions, self.red_positions)
+
+        # 蓝方智能体自爆范围内的红方智能体
+        red_in_explode_zone = distances_blue2red < self.explode_radius
+
+        # 蓝方智能体自爆的掩码
+        self_destruction_mask = np.zeros(self.n_blues, dtype=bool)
+
+        if alive_percentage > 0.8:
+            # 第一条规则：存活比例超过80%且自爆范围内的红方智能体数量超过2则自爆
+            red_counts_in_zone = np.sum(red_in_explode_zone, axis=1)
+            self_destruction_mask = red_counts_in_zone > 2
+        
+        elif 0.6 < alive_percentage <= 0.8:
+            # 第二条规则：如果蓝方存活智能体的数量在60%和80%之间且自爆范围内红方智能体的数量超过3,则自爆
+            red_counts_in_zone = np.sum(red_in_explode_zone, axis=1)
+            self_destruction_mask = red_counts_in_zone > 3
+        
+        # 触发自爆的蓝方智能体将被标记为死亡
+        self.blue_alives[self_destruction_mask] = False
+
+        # 将自爆范围内的红方智能体标记为死亡
+        red_explode_mask = np.any(red_in_explode_zone[self_destruction_mask], axis=0)
+        self.red_alives[red_explode_mask] = False
+        
     def blue_step(self):
-        # 计算多波次的mask
+        # 执行自爆
+        self.blue_self_destruction()
+
+        # 计算多波次的mask，决定哪些智能体在当前步内激活
         mask = np.zeros(self.n_blues, dtype=bool)
-        # 第1波次派出0号组
+
+        # 根据当前的步骤来决定激活的智能体组
         if self._episode_steps <= self.interval:
             valid_num = self.group_sizes[0]
-        # 第2波次派出1和2号组
         elif self.interval < self._episode_steps <= self.interval * 2:
             valid_num = sum(self.group_sizes[:3])
-        # 第3波次派出3和4号组
         else:
             valid_num = self.n_blues
+
         mask[:valid_num] = True
         
-        # 初始化每个智能体的目标点坐标
+        # 初始化每个智能体的目标点坐标，默认为红方基地中心
         target_positions = np.tile(self.red_base_center, (self.n_blues, 1))
 
-        # 判断智能体是否在警戒区，是否即将进入警戒区
+        # 判断智能体是否在警戒区或即将进入警戒区
         is_in_threat, will_in_threat = self.is_in_threat_zone()
 
         if self._episode_steps > self.interval * 2:
-            # 对于即将进入警戒区的智能体，绕飞警戒区
+            # 对于即将进入警戒区的智能体，更新其目标位置以绕飞警戒区
             target_positions = self.around_threat_zone(will_in_threat, target_positions)
-            # 对于已经在警戒区的智能体，逃离警戒区
+            # 对于已经在警戒区的智能体，更新其目标位置以逃离警戒区
             target_positions = self.flee_threat_zone(is_in_threat, target_positions)
 
-        # 对于在红方自爆范围内的智能体，逃离自爆范围
+        # 对于在红方自爆范围内的智能体，更新其目标位置以逃离自爆范围
         target_positions = self.flee_explode_zone(target_positions)
 
         # 计算期望方向
@@ -285,9 +395,11 @@ class DefenseEnv(BaseEnv):
         # 确保转向角度不超过最大角速度
         angles_diff = np.clip(angles_diff, -self.max_angular_vel, self.max_angular_vel)
 
-        # 更新当前方向
+        # 更新当前方向，受激活mask限制
         self.blue_directions[mask] += angles_diff[mask]
         self.blue_directions = (self.blue_directions + np.pi) % (2 * np.pi) - np.pi
+
+        # 更新智能体位置，受激活mask限制
         self.blue_positions[mask] += (np.column_stack((self.blue_velocities * np.cos(self.blue_directions),
                                                        self.blue_velocities * np.sin(self.blue_directions))) * self.dt_time)[mask]
 
@@ -506,13 +618,13 @@ if __name__ == "__main__":
         start_time = time.time()
         last_time = time.time()
 
-        # world.update_matrices()
-        # print("更新矩阵: {:.5f}".format(time.time() - last_time))
-        # last_time = time.time()
+        world.update_matrices()
+        print("更新矩阵: {:.5f}".format(time.time() - last_time))
+        last_time = time.time()
 
-        # world.get_obs()
-        # print("获取观测: {:.5f}".format(time.time() - last_time))
-        # last_time = time.time()
+        world.get_obs()
+        print("获取观测: {:.5f}".format(time.time() - last_time))
+        last_time = time.time()
 
         actions = world.scripted_policy_red()
         print("脚本策略: {:.5f}".format(time.time() - last_time))
