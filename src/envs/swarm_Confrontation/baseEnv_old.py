@@ -133,17 +133,22 @@ class BaseEnv(MultiAgentEnv):
         # Reset out-of-bounds time
         self.out_of_bounds_time = np.zeros(self.n_agents)
 
+        # Reset the distances matrix and angle matrix
+        self.distances_matrix_red2blue = None
+        self.distances_matrix_blue2red = None
+        self.distances_matrix_red2red = None
+
+        self.directions_matrix_red2blue = None
+        self.directions_matrix_blue2red = None
+
+        self.angles_diff_matrix_red2blue = None
+        self.angles_diff_matrix_blue2red = None
+
         # Reset observed list and targets
-        self.observed_allies = -np.ones((self.n_reds, self.max_observed_allies), dtype=int)
-        self.observed_enemies = -np.ones((self.n_reds, self.max_observed_enemies), dtype=int)
-
-        self.distance_observed_allies = np.zeros((self.n_reds, self.max_observed_allies))
-        self.distance_observed_enemies = np.zeros((self.n_reds, self.max_observed_enemies))
-        
-        self.red_targets = -np.ones(self.n_reds, dtype=int)
-        self.blue_targets = -np.ones(self.n_blues, dtype=int)
-
-        self.angles_diff_red2blue = None
+        self.red_observed_allies = None
+        self.red_observed_enemies = None
+        self.red_targets = None
+        self.blue_targets = None
 
 
     def init_positions(self):
@@ -173,10 +178,44 @@ class BaseEnv(MultiAgentEnv):
 
 
     def explode(self, i):
-        pass
+        if i < self.n_reds:
+            in_radius_enemies_i = self.distances_matrix_red2blue[i, :] < self.explode_radius
+
+            self.red_alives[i] = False
+            self.blue_alives[in_radius_enemies_i] = False
+        else:
+            i -= self.n_reds
+            in_radius_enemies_i = self.distances_matrix_blue2red[i, :] < self.explode_radius
+
+            self.blue_alives[i] = False
+            self.red_alives[in_radius_enemies_i] = False
 
     def collide(self, i):
-        pass
+        if i < self.n_reds:
+            # assert self.red_targets[i] != -1
+            if self.red_targets[i] == -1:
+                return True
+
+            if self.distances_matrix_red2blue[i, self.red_targets[i]]  <= self.collide_distance:
+                self.red_alives[i] = False
+                self.blue_alives[self.red_targets[i]] = False
+                return True
+            else:
+                self.red_directions = self.directions_matrix_red2blue[i, self.red_targets[i]]
+                return False
+        else:
+            i -= self.n_reds
+            # assert self.blue_targets[i] == -1
+            if self.blue_targets[i] == -1:
+                return True
+
+            if self.distances_matrix_blue2red[i, self.blue_targets[i]]  <= self.collide_distance:
+                self.blue_alives[i] = False
+                self.red_alives[self.blue_targets[i]] = False
+                return True
+            else:
+                self.blue_directions = self.directions_matrix_blue2red[i, self.blue_targets[i]]
+                return False
 
     def soft_kill(self, i):
         pass
@@ -233,54 +272,103 @@ class BaseEnv(MultiAgentEnv):
         self._total_steps += 1
         self._episode_steps += 1
             
-    
-    def update_observed_entities(self, positions, alives, max_num):
-        # 计算红方智能体与实体之间的距离
-        distance_red2entity = distance.cdist(self.red_positions, positions, 'euclidean')
-
-        # 创建有效性掩码，只考虑存活的智能体之间的距离
-        valid_mask = self.red_alives[:, np.newaxis] & alives[np.newaxis, :]
-
-        # 将无效的距离设置为无限大
-        distance_red2entity = np.where(valid_mask, distance_red2entity, np.inf)
-
-        # 通信范围内的实体
-        in_radius_entities = distance_red2entity < self.detection_radius
-
-        # 将不在通信范围内的实体距离设置为无限大
-        distance_red2entity[~in_radius_entities] = np.inf
-
-        # 找到通信范围内max_num个最近的实体，如果不够则用-1补全
-        # 使用 argsort 进行排序，并选取前max_num个最近的实体
-        sorted_indices = np.argsort(distance_red2entity, axis=1)
-
-        # 获取前 max_num 个最近的实体索引
-        nearest_id = sorted_indices[:, :max_num]
-
-        # 获取前 max_num 个最近的实体距离
-        nearest_dist = distance_red2entity[np.arange(self.n_reds)[:, np.newaxis], nearest_id]
-
-        # 创一个掩码来标记距离无限大的位置
-        inf_mask = np.isinf(nearest_dist)
-
-        # 将距离为无限大的位置索引替换为 -1
-        nearest_id[inf_mask] = -1
-
-        return nearest_id, nearest_dist
-
-    def update_angles_diff(self):
-        # 计算红方智能体到蓝方智能体的方向向量
+    def update_matrices(self):
+        # Calculate direction vectors from red agents to blue agents
         delta_red2blue = self.blue_positions[np.newaxis, :, :] - self.red_positions[:, np.newaxis, :]   # nred x nblue x 2
 
-        # 计算红方智能体到蓝方智能体的角度
-        angles_red2blue = np.arctan2(delta_red2blue[:, :, 1], delta_red2blue[:, :, 0])                  # nred x nblue
+        # Calculate direction angles from red agents to blue agents
+        directions_angles_red2blue = np.arctan2(delta_red2blue[:, :, 1], delta_red2blue[:, :, 0])       # nred x nblue
+        
+        # Calculate angles between the red and blue planes
+        angles_diff_matrix_red2blue = directions_angles_red2blue - self.red_directions[:, np.newaxis]   # nred x nblue
+        angles_diff_matrix_red2blue = (angles_diff_matrix_red2blue + np.pi) % (2 * np.pi) - np.pi
 
-        # 计算红方智能体当前方向与到蓝方智能体的方向的角度差
-        angles_diff_red2blue = angles_red2blue - self.red_directions[:, np.newaxis]                     # nred x nblue
-        angles_diff_red2blue = (angles_diff_red2blue + np.pi) % (2 * np.pi) - np.pi
+        # Calculate distances from red agents to blue agents
+        distances_red2blue = distance.cdist(self.red_positions, self.blue_positions, 'euclidean')
 
-        return angles_diff_red2blue
+        # Create a mask for the alive agents
+        valid_mask = self.red_alives[:, np.newaxis] & self.blue_alives[np.newaxis, :]                   # nred x nblue
 
+        # Update the directions and distances matrices
+        self.distances_matrix_red2blue = np.where(valid_mask, distances_red2blue, np.inf)
+        self.directions_matrix_red2blue = np.where(valid_mask, directions_angles_red2blue, np.inf)
+        self.angles_diff_matrix_red2blue = np.where(valid_mask, angles_diff_matrix_red2blue, np.inf)
+        
+        # Reuse the delta_red2blue for blue to red by swapping the axes
+        delta_blue2red = -delta_red2blue.transpose(1, 0, 2)                                             # nblue x nred x 2
+
+        # Calculate direction angles from blue agents to red agents
+        directions_angles_blue2red = np.arctan2(delta_blue2red[:, :, 1], delta_blue2red[:, :, 0])       # nblue x nred
+        
+        # Calculate angles between the red and blue planes
+        angles_diff_matrix_blue2red = directions_angles_blue2red - self.blue_directions[:, np.newaxis]  # nblue x nred
+        angles_diff_matrix_blue2red = (angles_diff_matrix_blue2red + np.pi) % (2 * np.pi) - np.pi
+
+        # Transpose the distances matrix for red to blue to get blue to red
+        distances_blue2red = distances_red2blue.T
+
+        # Update the directions and distances matrices
+        self.distances_matrix_blue2red = np.where(valid_mask.T, distances_blue2red, np.inf)
+        self.directions_matrix_blue2red = np.where(valid_mask.T, directions_angles_blue2red, np.inf)
+        self.angles_diff_matrix_blue2red = np.where(valid_mask.T, angles_diff_matrix_blue2red, np.inf)
+
+        # Calculate distances and update matrix for red to red
+        distances_red2red = distance.cdist(self.red_positions, self.red_positions, 'euclidean')
+        valid_mask = self.red_alives[:, np.newaxis] & self.red_alives[np.newaxis, :]
+        self.distances_matrix_red2red = np.where(valid_mask, distances_red2red, np.inf)
+
+
+    def update_observed_agents(self):
+
+        # Reset the observed allies list and fill it with -1 values
+        self.red_observed_allies = -np.ones((self.n_reds, self.max_observed_allies), dtype=int)
+        # Reset the observed enemies list and fill it with -1 values
+        self.red_observed_enemies = -np.ones((self.n_reds, self.max_observed_enemies), dtype=int)
+        # Reset the attacking target
+        self.red_targets = -np.ones(self.n_reds, dtype=int)
+        self.blue_targets = -np.ones(self.n_blues, dtype=int)
+        
+        # Check if the allies are within the field of detection
+        in_radius_allies = (self.distances_matrix_red2red < self.detection_radius) & (self.distances_matrix_red2red > 0)
+        # Check if the enemies are within the field of detection
+        in_radius_enemies = (self.distances_matrix_red2blue < self.detection_radius)
+        # Check if the enemies are within the field of attack
+        in_attack_range_red = (self.distances_matrix_red2blue < self.attack_radius) & (np.abs(self.angles_diff_matrix_red2blue) < self.attack_angle / 2)
+        in_attack_range_blue = (self.distances_matrix_blue2red < self.attack_radius) & (np.abs(self.angles_diff_matrix_blue2red) < self.attack_angle / 2)
+
+        # Create an array of indices for sorting purpose
+        ally_indices = np.argsort(self.distances_matrix_red2red, axis=1)
+        enemy_indices_red = np.argsort(self.distances_matrix_red2blue, axis=1)
+        enemy_indices_blue = np.argsort(self.distances_matrix_blue2red, axis=1)
+
+        # Update the observed allies list for each agent
+        for i in range(self.n_reds):
+            if not self.red_alives[i]:
+                continue
+    
+            in_radius_allies_i = in_radius_allies[i]
+            sorted_allies = ally_indices[i, in_radius_allies_i]
+            observed_allies_num = min(len(sorted_allies), self.max_observed_allies)
+            self.red_observed_allies[i, :observed_allies_num] = sorted_allies[:observed_allies_num]
+            
+            in_radius_enemies_i = in_radius_enemies[i]
+            sorted_enemies = enemy_indices_red[i, in_radius_enemies_i]
+            observed_enemies_num = min(len(sorted_enemies), self.max_observed_enemies)
+            self.red_observed_enemies[i, :observed_enemies_num] = sorted_enemies[:observed_enemies_num]
+
+            in_attack_range_i = in_attack_range_red[i]
+            sorted_targets = enemy_indices_red[i, in_attack_range_i]
+            if len(sorted_targets) > 0:
+                self.red_targets[i] = sorted_targets[0]
+
+        for i in range(self.n_blues):
+            if not self.blue_alives[i]:
+                continue
+            in_attack_range_i = in_attack_range_blue[i]
+            sorted_targets = enemy_indices_blue[i, in_attack_range_i]
+            if len(sorted_targets) > 0:
+                self.blue_targets[i] = sorted_targets[0]
+            
 
     def get_obs_agent(self, agent_id):
         own_feats = np.zeros(self.obs_own_feats_size, dtype=np.float32)
@@ -288,31 +376,27 @@ class BaseEnv(MultiAgentEnv):
         enemy_feats = np.zeros((self.max_observed_enemies, self.obs_enemy_feats_size), dtype=np.float32)
 
         if self.red_alives[agent_id]:
-            # Own features
+            # own_feats
             own_feats[0:2] = self.red_positions[agent_id] / np.array([self.size_x / 2, self.size_y / 2])
             own_feats[2] = (self.red_velocities[agent_id] - self.red_min_vel) / (self.red_max_vel - self.red_min_vel)
             own_feats[3] = self.red_directions[agent_id] / np.pi
 
-            # Ally features
-            valid_allies = self.observed_allies[agent_id]
-            valid_allies = valid_allies[valid_allies != -1]
-
-            if valid_allies.size > 0:
+            # ally_feats
+            valid_allies = self.red_observed_allies[agent_id][self.red_observed_allies[agent_id] != -1]
+            if len(valid_allies) > 0:
                 ally_positions = self.red_positions[valid_allies]
-                ally_feats[:valid_allies.size, 0:2] = (ally_positions - self.red_positions[agent_id]) / self.detection_radius
-                ally_feats[:valid_allies.size, 2] = self.distance_observed_allies[agent_id, :valid_allies.size] / self.detection_radius
-                ally_feats[:valid_allies.size, 3] = self.red_directions[valid_allies] / np.pi
+                ally_feats[:len(valid_allies), 0:2] = (ally_positions - self.red_positions[agent_id]) / self.detection_radius
+                ally_feats[:len(valid_allies), 2] = self.distances_matrix_red2red[agent_id, valid_allies] / self.detection_radius
+                ally_feats[:len(valid_allies), 3] = self.red_directions[valid_allies] / np.pi
 
             # enemy_feats
-            valid_enemies = self.observed_enemies[agent_id]
-            valid_enemies = valid_enemies[valid_enemies != -1]
-
+            valid_enemies = self.red_observed_enemies[agent_id][self.red_observed_enemies[agent_id] != -1]
             if len(valid_enemies) > 0:
                 enemy_positions = self.blue_positions[valid_enemies]
-                enemy_feats[:valid_enemies.size, 0:2] = (enemy_positions - self.red_positions[agent_id]) / self.detection_radius
-                enemy_feats[:valid_enemies.size, 2] = self.distance_observed_enemies[agent_id, :valid_enemies.size] / self.detection_radius
-                enemy_feats[:valid_enemies.size, 3] = self.blue_directions[valid_enemies] / np.pi
-                enemy_feats[:valid_enemies.size, 4] = self.angles_diff_red2blue[agent_id, valid_enemies] / (self.attack_angle / 2)
+                enemy_feats[:len(valid_enemies), 0:2] = (enemy_positions - self.red_positions[agent_id]) / self.detection_radius
+                enemy_feats[:len(valid_enemies), 2] = self.distances_matrix_red2blue[agent_id, valid_enemies] / self.detection_radius
+                enemy_feats[:len(valid_enemies), 3] = self.blue_directions[valid_enemies] / np.pi
+                enemy_feats[:len(valid_enemies), 4] = self.angles_diff_matrix_red2blue[agent_id, valid_enemies] / (self.attack_angle / 2)
         
         agent_obs = np.concatenate(
             (
@@ -324,71 +408,10 @@ class BaseEnv(MultiAgentEnv):
 
         return agent_obs
 
-    def get_obs_old(self):
-        self.observed_allies, self.distance_observed_allies = self.update_observed_entities(
-            self.red_positions, self.red_alives, self.max_observed_allies)
-        self.observed_enemies, self.distance_observed_enemies = self.update_observed_entities(
-            self.blue_positions, self.blue_alives, self.max_observed_enemies)
-        
-        self.angles_diff_red2blue = self.update_angles_diff()
-
-        agents_obs = [self.get_obs_agent(i) for i in range(self.n_reds)]
-
-        return agents_obs
-    
     def get_obs(self):
-        # Update observed allies and enemies for all agents
-        self.observed_allies, self.distance_observed_allies = self.update_observed_entities(
-            self.red_positions, self.red_alives, self.max_observed_allies)
-        self.observed_enemies, self.distance_observed_enemies = self.update_observed_entities(
-            self.blue_positions, self.blue_alives, self.max_observed_enemies)
-        
-        # Update angles differences between red agents and blue agents
-        self.angles_diff_red2blue = self.update_angles_diff()
-
-        # Initialize feature arrays
-        own_feats = np.zeros((self.n_reds, self.obs_own_feats_size), dtype=np.float32)
-        ally_feats = np.zeros((self.n_reds, self.max_observed_allies, self.obs_ally_feats_size), dtype=np.float32)
-        enemy_feats = np.zeros((self.n_reds, self.max_observed_enemies, self.obs_enemy_feats_size), dtype=np.float32)
-
-        # Process only alive agents
-        alive_mask = self.red_alives
-
-        # Own features
-        own_feats[alive_mask, 0:2] = self.red_positions[alive_mask] / np.array([self.size_x / 2, self.size_y / 2])
-        own_feats[alive_mask, 2] = (self.red_velocities[alive_mask] - self.red_min_vel) / (self.red_max_vel - self.red_min_vel)
-        own_feats[alive_mask, 3] = self.red_directions[alive_mask] / np.pi
-
-        # Ally features
-        valid_allies_mask = self.observed_allies != -1
-        ally_ids = self.observed_allies[valid_allies_mask]
-        agent_ids, ally_indices = np.where(valid_allies_mask)
-        
-        ally_positions = self.red_positions[ally_ids]
-        ally_feats[agent_ids, ally_indices, 0:2] = (ally_positions - self.red_positions[agent_ids]) / self.detection_radius
-        ally_feats[agent_ids, ally_indices, 2] = self.distance_observed_allies[valid_allies_mask] / self.detection_radius
-        ally_feats[agent_ids, ally_indices, 3] = self.red_directions[ally_ids] / np.pi
-
-        # Enemy features
-        valid_enemies_mask = self.observed_enemies != -1
-        enemy_ids = self.observed_enemies[valid_enemies_mask]
-        agent_ids, enemy_indices = np.where(valid_enemies_mask)
-        
-        enemy_positions = self.blue_positions[enemy_ids]
-        enemy_feats[agent_ids, enemy_indices, 0:2] = (enemy_positions - self.red_positions[agent_ids]) / self.detection_radius
-        enemy_feats[agent_ids, enemy_indices, 2] = self.distance_observed_enemies[valid_enemies_mask] / self.detection_radius
-        enemy_feats[agent_ids, enemy_indices, 3] = self.blue_directions[enemy_ids] / np.pi
-        enemy_feats[agent_ids, enemy_indices, 4] = self.angles_diff_red2blue[agent_ids, enemy_ids] / (self.attack_angle / 2)
-
-        # Combine all features into a single observation array
-        agents_obs = np.concatenate(
-            (
-                own_feats,
-                ally_feats.reshape(self.n_reds, -1),
-                enemy_feats.reshape(self.n_reds, -1)
-            ),
-            axis=1
-        )
+        self.update_matrices()
+        self.update_observed_agents()
+        agents_obs = [self.get_obs_agent(i) for i in range(self.n_reds)]
 
         return agents_obs
     
@@ -435,6 +458,7 @@ class BaseEnv(MultiAgentEnv):
         actions = np.column_stack((acc_action, heading_action, attack_action))
 
         return actions 
+    
 
     def scripted_policy_blue(self):
         acc_action = np.random.randint(0, self.acc_action_num, size=self.n_blues)
@@ -547,7 +571,7 @@ if __name__ == "__main__":
 
     import time
     world.reset()
-    num_frames = 100
+    num_frames = 500
 
     time_list = []
     
@@ -556,12 +580,12 @@ if __name__ == "__main__":
         start_time = time.time()
         last_time = time.time()
 
-        world.get_obs()
-        print("获取观测: {:.5f}".format(time.time() - last_time))
+        world.update_matrices()
+        print("更新矩阵: {:.5f}".format(time.time() - last_time))
         last_time = time.time()
 
-        world.get_state()
-        print("获取状态: {:.5f}".format(time.time() - last_time))
+        world.get_obs()
+        print("获取观测: {:.5f}".format(time.time() - last_time))
         last_time = time.time()
 
         actions = world.scripted_policy()
@@ -572,7 +596,7 @@ if __name__ == "__main__":
         print("环境更新: {:.5f}".format(time.time() - last_time))
         last_time = time.time()
         
-        world.render(frame_num=i, save_frames=False)
+        world.render(frame_num=i, save_frames=True)
         print("环境渲染: {:.5f}".format(time.time() - last_time))
         time_list.append(time.time() - start_time)
     
@@ -582,7 +606,7 @@ if __name__ == "__main__":
 
     world.close()
 
-    # create_gif("frames", "output.gif", fps=100)
+    create_gif("frames", "output.gif", fps=100)
 
 
     

@@ -74,57 +74,124 @@ class DefenseEnv(BaseEnv):
 
         self.interval = 5
 
-        self.explode_radius = 100
+        # 基地的最大攻击次数
+        self.max_attack_core_num = 40
 
-        self.n_reds = 50
-        self.n_blues = 100
+        # Reward
+        self.reward_time = -0.1             # 每存活一个时间步的惩罚
+        self.reward_explode_red = -10       # 被炸掉的惩罚
+        self.reward_explode_blue = 10       # 炸掉蓝方的奖励
+        self.reward_explode_invalid = -15   # 无效自爆惩罚
+        self.reward_attack_core = -20       # 核心区域被攻击的惩罚
+        self.reward_collied = 10            # 撞击成功的奖励
+        self.reward_win = 100               # 获胜奖励
+        self.reward_defeat = 0              # 失败奖励
 
     def reset(self):
         super().reset()
 
         self.in_threat_zone_times = np.zeros(self.n_blues)
 
+        self.explode_red_num = 0            # 每个时间步被炸毁的红方智能体数量
+        self.explode_blue_num = 0           # 每个时间步被炸毁的蓝方智能体数量
+        self.invalid_explode_num = 0        # 每个时间步无效自爆的红方智能体数量
+        self.collide_success_num = 0        # 每个时间撞击成功的红方智能体数量
+        self.attack_core_num = 0            # 每个时间步红方核心区域被攻击的次数
+
+        self.total_hit_core_num = 0         # 当前回合红方高价值区域被打击的总次数
+
+
     def red_explode(self, explode_mask):
+        # 更新 explode_mask， 排除已经死掉的智能体
+        valid_explode_mask = explode_mask & self.red_alives
+
+        # 计算每个红方智能体与每个蓝方智能体之间的距离
+        distances_red2blue = distance.cdist(self.red_positions, self.blue_positions, 'euclidean')
+        
         # 红方智能体自爆范围内的蓝方智能体
-        blue_in_explode_zone = self.distances_matrix_red2blue < self.explode_radius
+        blue_in_explode_zone = distances_red2blue < self.explode_radius
+
+        # 统计无效自爆的智能体数量
+        valid_blue_mask = blue_in_explode_zone & self.blue_alives
+        self.invalid_explode_num = np.sum(np.sum(valid_blue_mask[valid_explode_mask], axis=1) == 0)
 
         # 触发自爆的红方智能体将被标记为死亡
-        self.red_alives[explode_mask] = False
+        self.red_alives[valid_explode_mask] = False
 
-        # 将自爆范围内的蓝方智能体标记为死亡
-        blue_explode_mask = np.any(blue_in_explode_zone[explode_mask], axis=0)
+        # 将自爆范围内的蓝方智能体标记为死亡，并统计有效毁伤的蓝方智能体数量
+        blue_explode_mask = np.any(blue_in_explode_zone[valid_explode_mask], axis=0)
+        self.explode_blue_num = np.sum(blue_explode_mask & self.blue_alives)
         self.blue_alives[blue_explode_mask] = False
 
 
-    def red_collide(self, collide_mask):
+    def red_collide(self, collide_mask, pt):
         """
         红方智能体与其目标的碰撞
-        self.red_targets 中存放了其每个智能体的taget 的id, 如果当前智能体不存在target，则id为-1
         """
+        # 计算红方智能体到蓝方智能体的方向向量
+        delta_red2blue = self.blue_positions[np.newaxis, :, :] - self.red_positions[:, np.newaxis, :]   # nred x nblue x 2
+
+        # 计算红方智能体到蓝方智能体的角度
+        angles_red2blue = np.arctan2(delta_red2blue[:, :, 1], delta_red2blue[:, :, 0])                  # nred x nblue
+
+        # 计算红方智能体当前方向与到蓝方智能体的方向的角度差
+        angles_diff_red2blue = angles_red2blue - self.red_directions[:, np.newaxis]                     # nred x nblue
+        angles_diff_red2blue = (angles_diff_red2blue + np.pi) % (2 * np.pi) - np.pi
+
+        # 计算红方智能体到蓝方智能体的距离
+        distances_red2blue = distance.cdist(self.red_positions, self.blue_positions, 'euclidean')
+
+        # 创建有效性掩码，只考虑存活的红方和蓝方智能体之间的距离
+        valid_mask = self.red_alives[:, np.newaxis] & self.blue_alives[np.newaxis, :]
+
+        # 将无效的距离设置为无限大
+        distances_red2blue = np.where(valid_mask, distances_red2blue, np.inf)
+
+        # 红方智能体攻击范围内的蓝方智能体
+        blue_in_attack_zone = (distances_red2blue < self.attack_radius) & (
+            np.abs(angles_diff_red2blue) < self.attack_angle / 2
+        )
+
+        # 将不在攻击范围内的距离设置为无限大
+        distances_red2blue[~blue_in_attack_zone] = np.inf
+
+        # 找到每个红方智能体最近的蓝方智能体
+        nearest_blue_id = np.argmin(distances_red2blue, axis=1)
+
+        # 如果红方智能体没有攻击范围内的蓝方智能体，目标设为-1
+        nearest_blue_id[np.all(np.isinf(distances_red2blue), axis=1)] = -1
+
+        # 更新红方智能体的目标
+        red_targets = nearest_blue_id
+
         # 更新 collide_mask，排除没有 target 的智能体
-        valid_collide_mask = collide_mask & (self.red_targets != -1) & self.red_alives
+        valid_collide_mask = collide_mask & (red_targets != -1) & self.red_alives
 
         # 获取有效的 target_id
-        target_ids = self.red_targets[valid_collide_mask]
+        target_ids = red_targets[valid_collide_mask]
+        agent_ids = np.where(valid_collide_mask)[0]
+
+        # 获取红方智能体和其目标之间的距离
+        valid_distances = distances_red2blue[valid_collide_mask, target_ids]
+
+        # 判断撞击成功的情况
+        collide_success_mask = valid_distances < self.collide_distance + self.red_velocities[valid_collide_mask] * self.dt_time 
+
+        # 获取撞击成功的 agent_id 和 target_id
+        success_agent_ids = agent_ids[collide_success_mask]
+        success_target_ids = target_ids[collide_success_mask]
+
+        self.collide_success_num = success_agent_ids.size
 
         # 更新红方智能体和目标蓝方智能体的存活状态
-        self.red_alives[valid_collide_mask] = False
-        self.blue_alives[target_ids] = False
+        self.red_alives[success_agent_ids] = False
+        self.blue_alives[success_target_ids] = False
 
         # 更新红方智能体的方向
-        self.red_directions[valid_collide_mask] = self.directions_matrix_red2blue[valid_collide_mask, target_ids] 
+        self.red_directions[valid_collide_mask] = angles_red2blue[valid_collide_mask, target_ids]
+        pt[valid_collide_mask] = 0
 
-        # collide_mask &= (self.red_targets != -1)
-
-        # for i, collide in enumerate(collide_mask):
-        #     if collide and self.red_alives[i]:
-        #         target_id = self.red_targets[i]
-        #         self.red_alives[i] = False
-        #         self.blue_alives[target_id] = False
-        #         self.red_directions[i] = self.directions_matrix_red2blue[i, target_id]
-
-      
-        
+        return pt
 
     def step(self, actions):
         # Get red actions
@@ -138,10 +205,9 @@ class DefenseEnv(BaseEnv):
 
         # Perfor attack actions
         self.red_explode(explode_mask)
-        self.red_collide(collide_mask)
+        pt = self.red_collide(collide_mask, pt)
             
         # Perform move actions
-        pt[collide_mask] = 0
         self.red_directions += pt * self.max_angular_vel
         self.red_directions = (self.red_directions + np.pi) % (2 * np.pi) - np.pi
         self.red_velocities += at * self.dt_time
@@ -158,6 +224,26 @@ class DefenseEnv(BaseEnv):
         self._total_steps += 1
         self._episode_steps += 1
 
+        # Update terminated flag and reward
+        reward = self.reward_battle()
+        info = {'win': False, "other": ""}
+
+        terminated, win, res = self.get_result()
+
+        if terminated:
+            self._episode_count += 1
+        
+        if win:
+            reward += self.reward_win
+        else:
+            reward += self.reward_defeat
+
+        info['win'] = win
+        info['other'] = res
+
+        return reward, terminated, info
+
+
     def merge_state(self):
         self.positions = np.vstack([self.red_positions, self.blue_positions])
         self.directions = np.hstack([self.red_directions, self.blue_directions])
@@ -171,7 +257,7 @@ class DefenseEnv(BaseEnv):
         那么该蓝方智能体需要逃离该红方智能体的自爆范围。
         """    
         # 计算红方智能体与蓝方智能体之间的距离
-        distances_red2blue = distance.cdist(self.red_positions, self.blue_positions)
+        distances_red2blue = distance.cdist(self.red_positions, self.blue_positions, 'euclidean')
 
         # 创建有效性掩码，只考虑存活的红方和蓝方智能体之间的距离
         valid_mask = self.red_alives[:, np.newaxis] & self.blue_alives[np.newaxis, :]
@@ -270,6 +356,9 @@ class DefenseEnv(BaseEnv):
         dists_to_center = np.linalg.norm(self.blue_positions - self.red_core['center'], axis=1)
         in_red_core = dists_to_center < self.red_core['radius']
 
+        self.attack_core_num = np.sum(in_red_core & self.blue_alives)
+        self.total_hit_core_num += self.attack_core_num
+
         self.blue_alives[in_red_core] = False
 
     def is_in_threat_zone(self):
@@ -325,7 +414,7 @@ class DefenseEnv(BaseEnv):
         alive_percentage = alive_count / self.n_blues
 
         # 计算每个蓝方智能体与每个红方智能体的距离
-        distances_blue2red = distance.cdist(self.blue_positions, self.red_positions)
+        distances_blue2red = distance.cdist(self.blue_positions, self.red_positions, 'euclidean')
 
         # 蓝方智能体自爆范围内的红方智能体
         red_in_explode_zone = distances_blue2red < self.explode_radius
@@ -343,11 +432,16 @@ class DefenseEnv(BaseEnv):
             red_counts_in_zone = np.sum(red_in_explode_zone, axis=1)
             self_destruction_mask = red_counts_in_zone > 3
         
+        self_destruction_mask &= self.blue_alives
+
         # 触发自爆的蓝方智能体将被标记为死亡
         self.blue_alives[self_destruction_mask] = False
 
         # 将自爆范围内的红方智能体标记为死亡
         red_explode_mask = np.any(red_in_explode_zone[self_destruction_mask], axis=0)
+
+        self.explode_red_num = np.sum(red_explode_mask & self.red_alives)
+
         self.red_alives[red_explode_mask] = False
         
     def blue_step(self):
@@ -473,6 +567,55 @@ class DefenseEnv(BaseEnv):
             
         return agent_positions, agent_directions
 
+    def reward_battle(self):
+        reward = self.reward_time
+
+        num = np.array([self.explode_red_num, self.explode_blue_num, self.invalid_explode_num, self.collide_success_num, self.attack_core_num])
+        value = np.array([self.reward_explode_red, self.reward_explode_blue, self.reward_explode_invalid, self.reward_collied, self.reward_attack_core])
+
+        reward += np.sum(num * value)
+
+        return reward
+    
+    def get_result(self):
+        # 计算存活的智能体数量
+        n_red_alive = np.sum(self.red_alives)
+        n_blue_alive = np.sum(self.blue_alives)
+
+        # 初始化对抗结束标志和获胜方标志
+        terminated = False
+        win = False
+        info = ""
+
+        # 检查终止条件
+        if self._episode_count >= self.episode_limit:
+            terminated = True
+            win = self.total_hit_core_num < self.max_attack_core_num or n_blue_alive == 0
+            if win:
+                info = "Time limit reached. Red wins because blue could not destroy the base or all blue units were destroyed."
+            else:
+                info = "Time limit reached. Blue wins by destroying the red base."
+        elif n_red_alive == 0:
+            terminated = True
+            win = False
+            info = "All red units destroyed. Blue wins."
+        elif n_blue_alive == 0:
+            terminated = True
+            win = True
+            info = "All blue units destroyed. Red wins."
+        elif self.total_hit_core_num >= self.max_attack_core_num:
+            terminated = True
+            win = False
+            info = "Red base detroyed. Blue wins."
+        elif n_blue_alive + self.total_hit_core_num < self.max_attack_core_num:
+            terminated = True
+            win = True
+            info = "Remaining blue units insufficient to destroy red base. Red wins."
+
+        return terminated, win, info
+
+
+
     def init_positions(self):
         
         red_positions, red_directions = self.generate_red_positions()
@@ -571,14 +714,7 @@ class DefenseEnv(BaseEnv):
             pygame.image.save(self.screen, frame_path)
             
 
-def create_gif(frame_folder, output_path,  fps=10):
-    images = []
-    for file_name in sorted(os.listdir(frame_folder)):
-        if file_name.endswith('.png'):
-            file_path = os.path.join(frame_folder, file_name)
-            images.append(imageio.imread(file_path))
 
-    imageio.mimsave(output_path, images, fps=fps)
 
 def calculate_sector_theta(pos1, pos2, center):
     theta1 = np.arctan2(pos1[1] - center[1], pos1[0] - center[0])
@@ -589,17 +725,6 @@ def calculate_sector_theta(pos1, pos2, center):
     theta2 = (theta2 + 2 * np.pi) % (2 * np.pi)
 
     return theta1, theta2
-            
-def angle_within_range(p, start_angle, end_angle, center):
-    angles = np.arctan2(p[:, 1] - center[1], p[:, 0] - center[0])
-    
-    # Normalize angles to the range [0, 2*pi]
-    angles = np.mod(angles + 2*np.pi, 2*np.pi)
-
-    if start_angle <= end_angle:
-        return (angles >= start_angle) & (angles <= end_angle)
-    else:
-        return (angles >= start_angle) | (angles <= end_angle)
 
 
 if __name__ == "__main__":
@@ -618,8 +743,8 @@ if __name__ == "__main__":
         start_time = time.time()
         last_time = time.time()
 
-        world.update_matrices()
-        print("更新矩阵: {:.5f}".format(time.time() - last_time))
+        world.get_state()
+        print("获取状态: {:.5f}".format(time.time() - last_time))
         last_time = time.time()
 
         world.get_obs()
@@ -643,8 +768,6 @@ if __name__ == "__main__":
     print(time_list.mean(), time_list.std())
 
     world.close()
-
-    create_gif("frames", "output.gif", fps=100)
 
 
     
