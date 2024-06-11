@@ -10,6 +10,8 @@ import numpy as np
 
 from baseEnv import BaseEnv
 from scipy.spatial import distance
+from gym.spaces import MultiDiscrete
+
 
 os.environ["SDL_VIDEODRIVER"] = "dummy"
 # os.environ["SDL_AUDIODRIVER"] = "pulseaudio"
@@ -86,6 +88,18 @@ class DefenseEnv(BaseEnv):
         self.reward_collied = 10            # 撞击成功的奖励
         self.reward_win = 100               # 获胜奖励
         self.reward_defeat = 0              # 失败奖励
+        self.reward_out_of_bound = -5       # 出界惩罚
+
+        # 定义动作空间 （多离线动作空间）
+        self.action_space = [MultiDiscrete([self.acc_action_num,
+                                            self.heading_action_num,
+                                            self.attack_action_num])] * self.n_reds
+        
+        # 定义观测空间
+        self.observation_space = [self.get_obs_size()] * self.n_reds
+
+        # 定义状态空间
+        self.share_observation_space = [self.get_state_size()] * self.n_reds
 
     def reset(self):
         obs = super().reset()
@@ -101,7 +115,6 @@ class DefenseEnv(BaseEnv):
         self.total_hit_core_num = 0         # 当前回合红方高价值区域被打击的总次数
 
         return obs
-
 
     def red_explode(self, explode_mask):
         # 更新 explode_mask， 排除已经死掉的智能体
@@ -244,7 +257,6 @@ class DefenseEnv(BaseEnv):
         info['other'] = res
 
         return reward, terminated, info
-
 
     def merge_state(self):
         self.positions = np.vstack([self.red_positions, self.blue_positions])
@@ -572,8 +584,8 @@ class DefenseEnv(BaseEnv):
     def reward_battle(self):
         reward = self.reward_time
 
-        num = np.array([self.explode_red_num, self.explode_blue_num, self.invalid_explode_num, self.collide_success_num, self.attack_core_num])
-        value = np.array([self.reward_explode_red, self.reward_explode_blue, self.reward_explode_invalid, self.reward_collied, self.reward_attack_core])
+        num = np.array([self.explode_red_num, self.explode_blue_num, self.invalid_explode_num, self.collide_success_num, self.attack_core_num, self.out_of_bounds_num])
+        value = np.array([self.reward_explode_red, self.reward_explode_blue, self.reward_explode_invalid, self.reward_collied, self.reward_attack_core, self.reward_out_of_bound])
 
         reward += np.sum(num * value)
 

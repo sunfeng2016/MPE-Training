@@ -145,6 +145,9 @@ class BaseEnv(MultiAgentEnv):
 
         self.angles_diff_red2blue = None
 
+        # 每个时间步，红方出界的智能体数量
+        self.out_of_bounds_num = 0 
+
         obs = self.get_obs()
 
         return obs
@@ -178,7 +181,10 @@ class BaseEnv(MultiAgentEnv):
         self.out_of_bounds_time[~out_of_bounds] = 0
 
         # Check for agents that are out of bounds for 10 time steps
-        self.alives[self.out_of_bounds_time >= self.max_out_of_bounds_time] = False
+        dead_or_not = self.out_of_bounds_time >= self.max_out_of_bounds_time 
+
+        self.out_of_bounds_num = np.sum(dead_or_not[:self.n_reds] & self.alives)
+        self.alives[dead_or_not] = False
 
 
     def explode(self, i):
@@ -298,7 +304,8 @@ class BaseEnv(MultiAgentEnv):
 
         if self.red_alives[agent_id]:
             # Own features
-            own_feats[0:2] = self.red_positions[agent_id] / np.array([self.size_x / 2, self.size_y / 2])
+            # own_feats[0:2] = self.red_positions[agent_id] / np.array([self.size_x / 2, self.size_y / 2])
+            own_feats[0:2] = [0,0]
             own_feats[2] = (self.red_velocities[agent_id] - self.red_min_vel) / (self.red_max_vel - self.red_min_vel)
             own_feats[3] = self.red_directions[agent_id] / np.pi
 
@@ -332,6 +339,20 @@ class BaseEnv(MultiAgentEnv):
         )
 
         return agent_obs
+    
+    def get_obs_size(self):
+        own_feats = self.obs_own_feats_size
+        
+        n_allies, n_ally_feats = self.max_observed_allies, self.obs_ally_feats_size
+        n_enemies, n_enemy_feats = self.max_observed_enemies, self.obs_enemy_feats_size
+
+        ally_feats = n_allies * n_ally_feats
+        enemy_feats = n_enemies * n_enemy_feats
+
+        all_feats = own_feats + ally_feats + enemy_feats
+
+        return [all_feats, [1, own_feats], [n_allies, n_ally_feats], [n_enemies, n_enemy_feats]]
+        
 
     def get_obs_old(self):
         self.observed_allies, self.distance_observed_allies = self.update_observed_entities(
@@ -436,6 +457,14 @@ class BaseEnv(MultiAgentEnv):
         state = np.concatenate((red_state.flatten(), blue_state.flatten()))
 
         return state
+    
+    def get_state_size(self):
+        nf_al = self.red_state_size
+        nf_en = self.blue_state_size
+
+        size = self.n_reds * nf_al + self.n_blues * nf_en
+
+        return [size, [self.n_reds, nf_al], [self.n_blues, nf_en]]
     
     def scripted_policy(self):
         acc_action = np.random.randint(0, self.acc_action_num, size=self.n_agents)
