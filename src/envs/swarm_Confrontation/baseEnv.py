@@ -145,6 +145,15 @@ class BaseEnv(MultiAgentEnv):
 
         self.angles_diff_red2blue = None
 
+        obs = self.get_obs()
+
+        return obs
+
+    def seed(self, seed=None):
+        if seed is None:
+            np.random.seed(1)
+        else:
+            np.random.seed(seed)
 
     def init_positions(self):
         # Random positions and directions
@@ -390,7 +399,9 @@ class BaseEnv(MultiAgentEnv):
             axis=1
         )
 
-        return agents_obs
+        obs = [agents_obs[i, :] for i in range(self.n_reds)]
+
+        return obs
     
     def get_state(self):
         # Initialize the red and blue state arrays

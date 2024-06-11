@@ -88,7 +88,7 @@ class DefenseEnv(BaseEnv):
         self.reward_defeat = 0              # 失败奖励
 
     def reset(self):
-        super().reset()
+        obs = super().reset()
 
         self.in_threat_zone_times = np.zeros(self.n_blues)
 
@@ -99,6 +99,8 @@ class DefenseEnv(BaseEnv):
         self.attack_core_num = 0            # 每个时间步红方核心区域被攻击的次数
 
         self.total_hit_core_num = 0         # 当前回合红方高价值区域被打击的总次数
+
+        return obs
 
 
     def red_explode(self, explode_mask):
@@ -732,7 +734,7 @@ if __name__ == "__main__":
     world = DefenseEnv()
 
     import time
-    world.reset()
+    obs = world.reset()
     num_frames = 100
 
     time_list = []
